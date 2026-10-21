@@ -1,0 +1,2835 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>হিল চেজ এস্কেপ (Hill Chase Escape) - 2D Physics Runner & Chase</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090d16;
+      font-family: 'Hind Siliguri', sans-serif;
+    }
+    .num-font {
+      font-family: 'Rajdhani', sans-serif;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    @keyframes sirenPulse {
+      0%, 100% { box-shadow: inset 0 0 65px rgba(239, 68, 68, 0.45); }
+      50% { box-shadow: inset 0 0 65px rgba(59, 130, 246, 0.45); }
+    }
+    .siren-vignette {
+      animation: sirenPulse 0.48s infinite;
+    }
+    @keyframes dangerBlink {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.06); opacity: 0.82; }
+    }
+    .junction-pulse {
+      animation: dangerBlink 0.55s infinite;
+    }
+    .ctrl-btn {
+      transition: transform 0.06s ease, background-color 0.1s ease, box-shadow 0.1s ease;
+    }
+    .ctrl-btn:active, .ctrl-btn.pressed {
+      transform: scale(0.92);
+      filter: brightness(1.2);
+    }
+    /* Custom scrollbar for modal on small screens */
+    .modal-scroll {
+      touch-action: pan-y;
+      overflow-y: auto;
+    }
+    .modal-scroll * {
+      touch-action: pan-y;
+    }
+  </style>
+</head>
+<body class="text-white relative select-none">
+
+  <!-- Main Fullscreen Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Siren Screen Edge Flash Overlay -->
+  <div id="sirenOverlay" class="pointer-events-none fixed inset-0 opacity-0 transition-opacity duration-300 z-10 siren-vignette"></div>
+
+  <!-- TOP HUD DASHBOARD -->
+  <div id="hud" class="hidden fixed top-0 left-0 right-0 z-20 p-2 sm:p-3 pointer-events-none">
+    <div class="max-w-6xl mx-auto flex flex-col gap-1.5">
+      <!-- Top Row: Radar + Stamina + Stats -->
+      <div class="flex flex-wrap items-center justify-between gap-2">
+
+        <!-- Police Proximity Radar Bar -->
+        <div class="bg-slate-950/80 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 flex items-center gap-2.5 shadow-lg min-w-[205px] sm:min-w-[265px] flex-1 max-w-md">
+          <div class="flex flex-col flex-1">
+            <div class="flex items-center justify-between text-[11px] sm:text-xs font-semibold mb-1">
+              <span id="radarTitle" class="text-red-400 flex items-center gap-1">🚨 পুলিশ রাডার</span>
+              <span id="radarDistText" class="num-font text-sm font-bold text-amber-300">24.0m পেছনে</span>
+            </div>
+            <div class="relative h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+              <div id="radarDangerZone" class="absolute left-0 top-0 bottom-0 w-1/4 bg-gradient-to-r from-red-600/60 to-transparent"></div>
+              <div id="radarFill" class="h-full bg-gradient-to-r from-red-500 via-amber-400 to-emerald-400 transition-all duration-75" style="width: 55%"></div>
+              <!-- Icons inside bar -->
+              <span id="radarChaserIcon" class="absolute top-1/2 -translate-y-1/2 text-[10px] leading-none left-1">👮</span>
+              <span id="radarRunnerIcon" class="absolute top-1/2 -translate-y-1/2 text-[10px] leading-none right-1">🏃</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stamina / Energy Meter -->
+        <div class="bg-slate-950/80 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 flex flex-col min-w-[145px] sm:min-w-[185px] shadow-lg">
+          <div class="flex items-center justify-between text-[11px] sm:text-xs font-semibold mb-1">
+            <span class="text-emerald-400">⚡ স্ট্যামিনা (দম)</span>
+            <span id="staminaPct" class="num-font text-xs font-bold text-white">100%</span>
+          </div>
+          <div class="h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+            <div id="staminaBar" class="h-full bg-gradient-to-r from-emerald-500 to-lime-400 transition-all duration-75" style="width: 100%"></div>
+          </div>
+        </div>
+
+        <!-- Right Cluster: Wanted Stars, Coins, Distance, Audio/Pause -->
+        <div class="flex items-center gap-1.5 sm:gap-2 ml-auto pointer-events-auto">
+          <!-- Wanted Stars -->
+          <div class="bg-slate-950/80 backdrop-blur-md border border-slate-700/80 rounded-xl px-2.5 py-1.5 flex flex-col items-center shadow-lg">
+            <span class="text-[9px] uppercase tracking-wider text-slate-400 leading-none">Wanted</span>
+            <div id="wantedStars" class="text-xs sm:text-sm tracking-tight text-amber-400 leading-tight mt-0.5">★☆☆☆☆</div>
+          </div>
+
+          <!-- Coins -->
+          <div class="bg-slate-950/80 backdrop-blur-md border border-amber-500/40 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 shadow-lg">
+            <span class="text-sm">🪙</span>
+            <span id="hudCoins" class="num-font text-base sm:text-lg font-bold text-amber-300">0</span>
+          </div>
+
+          <!-- Distance -->
+          <div class="bg-slate-950/80 backdrop-blur-md border border-cyan-500/40 rounded-xl px-2.5 py-1.5 flex items-center gap-1 shadow-lg">
+            <span class="text-xs text-cyan-400">📍</span>
+            <span id="hudDistance" class="num-font text-base sm:text-lg font-bold text-white">0m</span>
+          </div>
+
+          <!-- Mute Button -->
+          <button id="btnSoundHud" title="সাউন্ড অন/অফ" class="bg-slate-900/90 hover:bg-slate-800 border border-slate-700 rounded-xl w-9 h-9 flex items-center justify-center text-sm shadow-lg cursor-pointer">
+            🔊
+          </button>
+
+          <!-- Menu / Restart Button -->
+          <button id="btnPauseMenu" title="মেনু / আপগ্রেড শপ" class="bg-slate-900/90 hover:bg-slate-800 border border-slate-700 rounded-xl px-2.5 h-9 flex items-center justify-center text-xs font-bold text-slate-200 shadow-lg cursor-pointer">
+            ⚙️ শপ
+          </button>
+        </div>
+      </div>
+
+      <!-- Alert Banner for 3-Path Junction / Adrenaline / Helicopter -->
+      <div id="junctionBanner" class="hidden self-center bg-gradient-to-r from-red-950/90 via-amber-950/95 to-red-950/90 border border-amber-400/80 rounded-full px-4 py-1 text-xs sm:text-sm font-bold text-amber-200 shadow-xl junction-pulse flex items-center gap-2">
+        <span>⚠️ সামনে ৩-রাস্তার মোড়! সূক্ষ্ম সংকেত দেখে নিরাপদ পথ বেছে নিন (▲ / ● / ▼)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ON-SCREEN TOUCH & INTERACTIVE CONTROLS -->
+  <div id="touchControls" class="hidden fixed inset-x-0 bottom-0 z-20 p-2.5 sm:p-4 pointer-events-none">
+    <div class="max-w-6xl mx-auto flex items-end justify-between gap-2">
+
+      <!-- LEFT SIDE: Brake / Lean Backward + Gadgets -->
+      <div class="flex flex-col items-start gap-2 pointer-events-auto">
+        <!-- Gadget Buttons Row -->
+        <div class="flex items-center gap-2">
+          <button id="btnGadgetTrap" class="ctrl-btn relative bg-amber-500/20 hover:bg-amber-500/35 border-2 border-amber-400/80 backdrop-blur-md rounded-xl px-3 py-2 flex items-center gap-1.5 shadow-lg cursor-pointer">
+            <span class="text-lg">🍌💨</span>
+            <div class="text-left leading-tight">
+              <div id="trapBtnLabel" class="text-[11px] font-bold text-amber-200">স্মোক/কলা [Q]</div>
+              <div class="text-[10px] text-amber-300/90 num-font">বাকি: <span id="hudTrapCount">2</span></div>
+            </div>
+          </button>
+
+          <button id="btnGadgetJet" class="ctrl-btn relative bg-cyan-500/20 hover:bg-cyan-500/35 border-2 border-cyan-400/80 backdrop-blur-md rounded-xl px-3 py-2 flex items-center gap-1.5 shadow-lg cursor-pointer">
+            <span class="text-lg">🚀</span>
+            <div class="text-left leading-tight">
+              <div class="text-[11px] font-bold text-cyan-200">জেটপ্যাক [E]</div>
+              <div class="text-[10px] text-cyan-300/90 num-font">বাকি: <span id="hudJetCount">1</span></div>
+            </div>
+          </button>
+        </div>
+
+        <!-- BRAKE / LEAN BACKWARD PEDAL -->
+        <button id="btnBrake" class="ctrl-btn w-28 h-20 sm:w-36 sm:h-24 rounded-2xl bg-gradient-to-b from-rose-600/80 to-rose-900/90 border-2 border-rose-400/80 shadow-xl backdrop-blur-md flex flex-col items-center justify-center cursor-pointer">
+          <span class="text-xl sm:text-2xl font-bold leading-none">◀ ↺</span>
+          <span class="text-xs sm:text-sm font-bold mt-1">ব্রেক / পেছনে ঝুঁকুন</span>
+          <span class="text-[10px] text-rose-200/80 num-font">[A / ◀]</span>
+        </button>
+      </div>
+
+      <!-- CENTER: 3-LANE PATH SWITCHER (UP / MID / DOWN) -->
+      <div id="laneSelectorBox" class="pointer-events-auto flex flex-col items-center gap-1 bg-slate-950/75 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-600/80 shadow-2xl transition-all duration-200">
+        <div class="text-[10px] font-bold text-slate-300 tracking-wide px-1">রাস্তা বাছাই</div>
+        <button id="btnLaneUp" data-lane="0" class="lane-btn ctrl-btn w-20 sm:w-24 py-1.5 rounded-xl text-xs font-bold border border-slate-600 bg-slate-800/80 text-slate-200 flex items-center justify-center gap-1 cursor-pointer">
+          <span>▲</span> <span>উপরে [1]</span>
+        </button>
+        <button id="btnLaneMid" data-lane="1" class="lane-btn ctrl-btn w-20 sm:w-24 py-1.5 rounded-xl text-xs font-bold border-2 border-emerald-400 bg-emerald-600/45 text-white flex items-center justify-center gap-1 cursor-pointer">
+          <span>●</span> <span>মাঝে [2]</span>
+        </button>
+        <button id="btnLaneDown" data-lane="2" class="lane-btn ctrl-btn w-20 sm:w-24 py-1.5 rounded-xl text-xs font-bold border border-slate-600 bg-slate-800/80 text-slate-200 flex items-center justify-center gap-1 cursor-pointer">
+          <span>▼</span> <span>নিচে [3]</span>
+        </button>
+      </div>
+
+      <!-- RIGHT SIDE: Jump + Sprint / Lean Forward -->
+      <div class="flex items-end gap-2 sm:gap-3 pointer-events-auto">
+        <!-- JUMP BUTTON -->
+        <button id="btnJump" class="ctrl-btn w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-b from-sky-500/80 to-indigo-800/90 border-2 border-sky-300/80 shadow-xl backdrop-blur-md flex flex-col items-center justify-center cursor-pointer">
+          <span class="text-xl sm:text-2xl leading-none">🦘</span>
+          <span class="text-xs sm:text-sm font-bold mt-1">লাফ</span>
+          <span class="text-[10px] text-sky-200/80 num-font">[SPACE]</span>
+        </button>
+
+        <!-- SPRINT / LEAN FORWARD PEDAL -->
+        <button id="btnSprint" class="ctrl-btn w-28 h-20 sm:w-36 sm:h-24 rounded-2xl bg-gradient-to-b from-emerald-500/85 to-emerald-900/95 border-2 border-emerald-300/90 shadow-xl backdrop-blur-md flex flex-col items-center justify-center cursor-pointer">
+          <span class="text-xl sm:text-2xl font-bold leading-none">↻ ▶</span>
+          <span class="text-xs sm:text-sm font-bold mt-1">দৌড় / সামনে ঝুঁকুন</span>
+          <span class="text-[10px] text-emerald-200/80 num-font">[D / ▶]</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- START / UPGRADE SHOP / GAME OVER MODAL OVERLAY -->
+  <div id="menuModal" class="fixed inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 modal-scroll">
+    <div class="w-full max-w-4xl bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border border-slate-700/90 rounded-3xl shadow-2xl p-4 sm:p-6 my-auto">
+
+      <!-- Header & Title -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+        <div>
+          <div class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-bold mb-1">
+            <span>🚨 2D HILL-CLIMB RAGDOLL CHASE</span>
+            <span>•</span>
+            <span>3-PATH SURVIVAL</span>
+          </div>
+          <h1 class="text-2xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-amber-300 via-white to-cyan-300 bg-clip-text text-transparent">
+            হিল চেজ এস্কেপ: বাঁচা-মরার দৌড়
+          </h1>
+        </div>
+
+        <!-- Persistent Wallet & High Score -->
+        <div class="flex items-center gap-3 self-start sm:self-center">
+          <div class="bg-slate-800/90 border border-amber-500/40 rounded-2xl px-3.5 py-2 text-right">
+            <div class="text-[11px] text-slate-400">মোট কয়েন (ব্যাংক)</div>
+            <div class="num-font text-xl font-bold text-amber-300">🪙 <span id="menuBankCoins">0</span></div>
+          </div>
+          <div class="bg-slate-800/90 border border-cyan-500/40 rounded-2xl px-3.5 py-2 text-right">
+            <div class="text-[11px] text-slate-400">সর্বোচ্চ দূরত্ব</div>
+            <div class="num-font text-xl font-bold text-cyan-300">🏆 <span id="menuBestDist">0</span>m</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Run Result Banner (Shown after Game Over) -->
+      <div id="gameOverBox" class="hidden mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-rose-950/90 via-slate-900 to-rose-950/90 border border-rose-500/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <div id="gameOverTitle" class="text-lg sm:text-xl font-bold text-rose-400">🚨 ধরা পড়েছেন! (BUSTED!)</div>
+          <div id="gameOverReason" class="text-xs sm:text-sm text-slate-300 mt-0.5">পুলিশ আপনাকে ধরে ফেলেছে!</div>
+        </div>
+        <div class="flex items-center gap-4 text-sm bg-slate-950/70 px-3.5 py-2 rounded-xl border border-slate-800">
+          <div>দূরত্ব: <b id="runDistStat" class="num-font text-cyan-300 text-base">0m</b></div>
+          <div>সংগৃহীত কয়েন: <b id="runCoinStat" class="num-font text-amber-300 text-base">+0</b></div>
+          <div>স্টান্ট ফ্লিপ: <b id="runFlipStat" class="num-font text-emerald-300 text-base">0</b></div>
+        </div>
+      </div>
+
+      <!-- Main Grid: Mode Selection + Instructions (Left) & Upgrade Shop (Right) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
+
+        <!-- Left Column (5 cols): Character Role Mode + Quick Guide -->
+        <div class="lg:col-span-5 flex flex-col justify-between gap-3">
+          <div class="bg-slate-800/45 border border-slate-700/70 rounded-2xl p-3.5">
+            <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">ক্যারেক্টার মোড বেছে নিন</div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <button id="modeThiefBtn" class="mode-card cursor-pointer rounded-xl p-3 border-2 border-emerald-400 bg-emerald-500/15 text-left transition">
+                <div class="text-xl mb-1">🦹‍♂️ ⬅️ 👮</div>
+                <div class="font-bold text-sm text-white">চোর মোড (Escape)</div>
+                <div class="text-[11px] text-slate-300 mt-0.5 leading-snug">সামনে দৌড়ান, ফাঁদ এড়ান এবং পেছনের পুলিশের হাত থেকে বাঁচুন!</div>
+              </button>
+
+              <button id="modePoliceBtn" class="mode-card cursor-pointer rounded-xl p-3 border-2 border-slate-700 bg-slate-900/70 text-left transition hover:border-sky-400/60">
+                <div class="text-xl mb-1">👮 ➡️ 🦹‍♂️</div>
+                <div class="font-bold text-sm text-white">পুলিশ মোড (Chaser)</div>
+                <div class="text-[11px] text-slate-300 mt-0.5 leading-snug">পলাতক চোরদের ধাওয়া করে ধরুন ও বাউন্টি কয়েন জিতুন!</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Gameplay Mechanics Highlights -->
+          <div class="bg-slate-800/45 border border-slate-700/70 rounded-2xl p-3.5 text-xs text-slate-300 space-y-2">
+            <div class="font-bold text-amber-300 text-sm">⚡ গেমপ্লে ও বাঁচার নিয়মাবলী:</div>
+            <p>🏔️ <b>হিল-ক্লাইম্ব ব্যালেন্স:</b> খাড়া পাহাড়ে উঠতে <b>D / ▶</b> চেপে সামনে ঝুঁকুন, ঢালে নামতে <b>A / ◀</b> চেপে পেছনে ব্যালেন্স রাখুন। শূন্যে <b>৩৬০° ফ্লিপ</b> দিলে পাবেন বোনাস কয়েন ও <b>Adrenaline Boost!</b></p>
+            <p>⚠️ <b>৩-রাস্তার ধাঁধা (২টি মৃত্যুফাঁদ, ১টি নিরাপদ):</b> প্রতিটি জংশনের ২-৩ সেকেন্ড আগে বিপজ্জনক রাস্তায় <i>ধোঁয়া, কাঁপুনি বা ঝিলিক</i> দেখা যাবে—তা দেখে দ্রুত <b>▲ Up [1] / ● Mid [2] / ▼ Down [3]</b> বেছে নিন!</p>
+            <p>🚀 <b>গ্যাজেট:</b> <b>[Q]</b> স্মোক বোম্ব/কলার খোসা পুলিশকে স্লো করে, আর <b>[E]</b> জেটপ্যাক দিয়ে উড়ে মৃত্যুফাঁদও পার হওয়া যায়!</p>
+          </div>
+        </div>
+
+        <!-- Right Column (7 cols): Upgrade Shop -->
+        <div class="lg:col-span-7 bg-slate-800/45 border border-slate-700/70 rounded-2xl p-3.5 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-sm font-bold text-amber-300">🛠️ ক্যারেক্টার আপগ্রেড শপ (Upgrade Shop)</span>
+              <span class="text-[11px] text-slate-400">স্বয়ংক্রিয়ভাবে সেভ থাকে</span>
+            </div>
+
+            <div id="upgradeGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <!-- Populated dynamically via JS -->
+            </div>
+          </div>
+
+          <!-- Start Action Bar -->
+          <div class="mt-4 pt-3 border-t border-slate-700/70 flex flex-wrap items-center justify-between gap-3">
+            <button id="btnResetSave" class="text-xs text-slate-400 hover:text-rose-400 underline cursor-pointer">
+              ডেটা রিসেট
+            </button>
+
+            <button id="btnStartGame" class="flex-1 sm:flex-initial px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 hover:brightness-110 text-slate-950 font-extrabold text-base sm:text-lg shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95">
+              <span>🏃 দৌড় শুরু করুন (PLAY NOW)</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      // =========================================================================
+      // 1. PERSISTENT UPGRADE & SAVE SYSTEM (localStorage)
+      // =========================================================================
+      const STORAGE_KEY = 'hill_chase_escape_save_v1';
+      const defaultSave = {
+        coins: 120, // Small starter bonus so players can test 1 upgrade right away!
+        bestDist: 0,
+        mode: 'thief', // 'thief' or 'police'
+        muted: false,
+        upgrades: {
+          speed: 1,
+          stamina: 1,
+          balance: 1,
+          vision: 1
+        }
+      };
+
+      let saveData = loadSave();
+      function loadSave() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return JSON.parse(JSON.stringify(defaultSave));
+          const parsed = JSON.parse(raw);
+          return {
+            ...defaultSave,
+            ...parsed,
+            upgrades: { ...defaultSave.upgrades, ...(parsed.upgrades || {}) }
+          };
+        } catch (e) {
+          return JSON.parse(JSON.stringify(defaultSave));
+        }
+      }
+      function persistSave() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
+        } catch (e) {}
+      }
+
+      const UPGRADE_META = [
+        {
+          key: 'speed',
+          icon: '⚡',
+          title: 'গতি (Speed)',
+          desc: 'সর্বোচ্চ দৌড়ের বেগ ও ত্বরণ বাড়ায়',
+          baseCost: 80
+        },
+        {
+          key: 'stamina',
+          icon: '🫁',
+          title: 'দম (Stamina)',
+          desc: 'স্ট্যামিনা ধারণক্ষমতা বাড়ায় ও ক্ষয় কমায়',
+          baseCost: 75
+        },
+        {
+          key: 'balance',
+          icon: '🤸',
+          title: 'ভারসাম্য (Balance)',
+          desc: 'পাহাড়ে শরীরের ব্যালেন্স ও দ্রুত ফ্লিপ নিয়ন্ত্রণ',
+          baseCost: 85
+        },
+        {
+          key: 'vision',
+          icon: '👁️',
+          title: 'দৃষ্টিশক্তি ও ভাগ্য (Vision)',
+          desc: 'আগেই বিপজ্জনক রাস্তার সংকেত ও বেশি কয়েন',
+          baseCost: 90
+        }
+      ];
+      const MAX_UPGRADE_LVL = 8;
+      function getUpgradeCost(key) {
+        const meta = UPGRADE_META.find(m => m.key === key);
+        const lvl = saveData.upgrades[key] || 1;
+        return Math.round(meta.baseCost * Math.pow(1.55, lvl - 1));
+      }
+
+      // =========================================================================
+      // 2. PROCEDURAL WEB AUDIO ENGINE (Siren, Footsteps, Jump, Coins, Heartbeat)
+      // =========================================================================
+      const AudioFX = (() => {
+        let ctx = null;
+        let masterGain = null;
+        let sirenOsc = null;
+        let sirenGain = null;
+        let lastStepTime = 0;
+        let lastHeartbeat = 0;
+
+        function init() {
+          if (!ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            ctx = new AudioCtx();
+            masterGain = ctx.createGain();
+            masterGain.gain.value = saveData.muted ? 0 : 0.7;
+            masterGain.connect(ctx.destination);
+
+            // Continuous background Police Siren (modulated dynamically!)
+            sirenOsc = ctx.createOscillator();
+            sirenGain = ctx.createGain();
+            sirenOsc.type = 'triangle';
+            sirenOsc.frequency.value = 650;
+            sirenGain.gain.value = 0.0001;
+            sirenOsc.connect(sirenGain);
+            sirenGain.connect(masterGain);
+            sirenOsc.start();
+          }
+          if (ctx && ctx.state === 'suspended') {
+            ctx.resume();
+          }
+        }
+
+        function setMuted(m) {
+          saveData.muted = m;
+          persistSave();
+          if (masterGain && ctx) {
+            masterGain.gain.setTargetAtTime(m ? 0 : 0.7, ctx.currentTime, 0.04);
+          }
+        }
+
+        function updateSiren(active, closenessRatio, wantedStars, timeSec) {
+          if (!ctx || !sirenGain || !sirenOsc) return;
+          if (!active || saveData.muted) {
+            sirenGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
+            return;
+          }
+          const rate = 2.4 + wantedStars * 0.45;
+          const lfo = Math.sin(timeSec * Math.PI * rate);
+          const freq = 690 + lfo * 185;
+          sirenOsc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.03);
+          const vol = 0.012 + Math.pow(Math.max(0, Math.min(1, closenessRatio)), 1.7) * 0.085;
+          sirenGain.gain.setTargetAtTime(vol, ctx.currentTime, 0.06);
+        }
+
+        function playTone(freqStart, freqEnd, duration, type = 'sine', vol = 0.2) {
+          if (!ctx || saveData.muted) return;
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freqStart, now);
+          osc.frequency.exponentialRampToValueAtTime(Math.max(25, freqEnd), now + duration);
+          g.gain.setValueAtTime(vol, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + duration);
+          osc.connect(g);
+          g.connect(masterGain);
+          osc.start(now);
+          osc.stop(now + duration + 0.02);
+        }
+
+        function playNoiseBurst(duration = 0.2, vol = 0.22, filterFreq = 800) {
+          if (!ctx || saveData.muted) return;
+          const bufferSize = Math.floor(ctx.sampleRate * duration);
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.value = filterFreq;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(vol, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+          src.connect(filter);
+          filter.connect(g);
+          g.connect(masterGain);
+          src.start();
+        }
+
+        return {
+          init,
+          setMuted,
+          updateSiren,
+          step(speedRatio) {
+            if (!ctx || saveData.muted) return;
+            const now = performance.now();
+            const interval = Math.max(125, 290 - speedRatio * 150);
+            if (now - lastStepTime < interval) return;
+            lastStepTime = now;
+            playNoiseBurst(0.055, 0.11, 420 + Math.random() * 180);
+          },
+          jump() {
+            playTone(210, 560, 0.18, 'sine', 0.22);
+          },
+          coin() {
+            playTone(880, 1320, 0.11, 'sine', 0.16);
+            setTimeout(() => playTone(1320, 1760, 0.14, 'sine', 0.13), 55);
+          },
+          energy() {
+            playTone(380, 920, 0.26, 'triangle', 0.22);
+          },
+          stunt() {
+            playTone(523, 784, 0.16, 'triangle', 0.22);
+            setTimeout(() => playTone(659, 1046, 0.25, 'triangle', 0.22), 90);
+          },
+          trapThrow() {
+            playTone(620, 220, 0.22, 'sawtooth', 0.16);
+            playNoiseBurst(0.24, 0.2, 1200);
+          },
+          slipHit() {
+            playTone(350, 980, 0.14, 'sine', 0.2);
+            setTimeout(() => playTone(980, 260, 0.22, 'sine', 0.2), 110);
+          },
+          jetpackTick() {
+            if (Math.random() < 0.35) playNoiseBurst(0.07, 0.09, 950);
+          },
+          crash() {
+            playNoiseBurst(0.45, 0.38, 650);
+            playTone(150, 42, 0.42, 'sawtooth', 0.28);
+          },
+          safeRoute() {
+            playTone(587, 880, 0.15, 'sine', 0.18);
+            setTimeout(() => playTone(880, 1175, 0.2, 'sine', 0.18), 80);
+          },
+          heartbeat(urgency) {
+            if (!ctx || saveData.muted) return;
+            const now = performance.now();
+            const gap = Math.max(380, 780 - urgency * 360);
+            if (now - lastHeartbeat < gap) return;
+            lastHeartbeat = now;
+            playTone(92, 48, 0.11, 'sine', 0.3 * urgency);
+            setTimeout(() => playTone(82, 44, 0.13, 'sine', 0.24 * urgency), 135);
+          }
+        };
+      })();
+
+      // =========================================================================
+      // 3. DOM REFERENCES & CANVAS SETUP
+      // =========================================================================
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+
+      const ui = {
+        sirenOverlay: document.getElementById('sirenOverlay'),
+        hud: document.getElementById('hud'),
+        touchControls: document.getElementById('touchControls'),
+        menuModal: document.getElementById('menuModal'),
+        radarTitle: document.getElementById('radarTitle'),
+        radarDistText: document.getElementById('radarDistText'),
+        radarFill: document.getElementById('radarFill'),
+        radarChaserIcon: document.getElementById('radarChaserIcon'),
+        radarRunnerIcon: document.getElementById('radarRunnerIcon'),
+        staminaPct: document.getElementById('staminaPct'),
+        staminaBar: document.getElementById('staminaBar'),
+        wantedStars: document.getElementById('wantedStars'),
+        hudCoins: document.getElementById('hudCoins'),
+        hudDistance: document.getElementById('hudDistance'),
+        btnSoundHud: document.getElementById('btnSoundHud'),
+        btnPauseMenu: document.getElementById('btnPauseMenu'),
+        junctionBanner: document.getElementById('junctionBanner'),
+        laneSelectorBox: document.getElementById('laneSelectorBox'),
+        btnLaneUp: document.getElementById('btnLaneUp'),
+        btnLaneMid: document.getElementById('btnLaneMid'),
+        btnLaneDown: document.getElementById('btnLaneDown'),
+        btnBrake: document.getElementById('btnBrake'),
+        btnSprint: document.getElementById('btnSprint'),
+        btnJump: document.getElementById('btnJump'),
+        btnGadgetTrap: document.getElementById('btnGadgetTrap'),
+        btnGadgetJet: document.getElementById('btnGadgetJet'),
+        trapBtnLabel: document.getElementById('trapBtnLabel'),
+        hudTrapCount: document.getElementById('hudTrapCount'),
+        hudJetCount: document.getElementById('hudJetCount'),
+        menuBankCoins: document.getElementById('menuBankCoins'),
+        menuBestDist: document.getElementById('menuBestDist'),
+        gameOverBox: document.getElementById('gameOverBox'),
+        gameOverTitle: document.getElementById('gameOverTitle'),
+        gameOverReason: document.getElementById('gameOverReason'),
+        runDistStat: document.getElementById('runDistStat'),
+        runCoinStat: document.getElementById('runCoinStat'),
+        runFlipStat: document.getElementById('runFlipStat'),
+        modeThiefBtn: document.getElementById('modeThiefBtn'),
+        modePoliceBtn: document.getElementById('modePoliceBtn'),
+        upgradeGrid: document.getElementById('upgradeGrid'),
+        btnStartGame: document.getElementById('btnStartGame'),
+        btnResetSave: document.getElementById('btnResetSave')
+      };
+
+      let viewW = window.innerWidth;
+      let viewH = window.innerHeight;
+      let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      function resizeCanvas() {
+        viewW = window.innerWidth;
+        viewH = window.innerHeight;
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(viewW * dpr);
+        canvas.height = Math.floor(viewH * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      // =========================================================================
+      // 4. CONSTANTS & INPUT STATE
+      // =========================================================================
+      const PX_PER_METER = 18; // 18 pixels = 1 meter -> crisp scale & fast pace
+      const LANE_OFFSET_Y = 138; // Vertical spacing between UP (-138), MID (0), DOWN (+138)
+      const JUNCTION_INTERVAL_M = 250; // Life-or-death 3-Path puzzle every 250m!
+      const TRAP_TYPES = [
+        { id: 'fire', nameBn: 'আগুনের গর্তে দগ্ধ হয়েছেন!', color: '#f97316' },
+        { id: 'pit', nameBn: 'ভাঙা ব্রিজ থেকে খাদে পড়েছেন!', color: '#94a3b8' },
+        { id: 'spikes', nameBn: 'লোহার স্পাইক ফাঁদে বিদ্ধ হয়েছেন!', color: '#ef4444' },
+        { id: 'rocks', nameBn: 'পাহাড়ি পাথর ধসে চাপা পড়েছেন!', color: '#a8a29e' },
+        { id: 'dogs', nameBn: 'হিংস্র কুকুরের পাল ধরে ফেলেছে!', color: '#eab308' }
+      ];
+
+      const keys = {
+        sprint: false,
+        brake: false,
+        jumpQueued: false
+      };
+
+      // =========================================================================
+      // 5. WORLD, TERRAIN, 3-PATH JUNCTIONS & PICKUPS GENERATOR
+      // =========================================================================
+      let game = null;
+
+      function createNewGameState() {
+        const u = saveData.upgrades;
+        const maxStamina = 100 + (u.stamina - 1) * 18;
+        const startX = 220;
+        const mode = saveData.mode; // 'thief' | 'police'
+
+        const state = {
+          running: true,
+          gameOver: false,
+          overTimer: 0,
+          time: 0,
+          mode,
+          startX,
+          coinsRun: 0,
+          flipsRun: 0,
+          bountiesCaught: 0,
+          wantedStars: 1,
+          selectedLane: 1, // 0 = UP, 1 = MID, 2 = DOWN
+
+          // Player stats derived from Upgrades
+          stats: {
+            maxSpeed: 430 + (u.speed - 1) * 24,
+            accel: 540 + (u.speed - 1) * 32,
+            maxStamina,
+            staminaDrain: 8.6 * Math.pow(0.92, u.stamina - 1),
+            airTorque: 7.4 + (u.balance - 1) * 0.55,
+            selfRighting: 4.2 + (u.balance - 1) * 0.65,
+            crashAngleLimit: 1.72 + (u.balance - 1) * 0.06, // radians (~98° to ~122°)
+            clueLeadPx: 820 + (u.vision - 1) * 105,
+            visionLevel: u.vision,
+            coinBonusChance: (u.vision - 1) * 0.08
+          },
+
+          player: {
+            x: startX,
+            y: 0,
+            vx: 190,
+            vy: 0,
+            angle: 0,
+            angVel: 0,
+            onGround: true,
+            activeLane: 1,
+            stamina: maxStamina,
+            adrenalineTimer: 0,
+            jetpackTimer: 0,
+            trapsLeft: 2,
+            jetpacksLeft: 1,
+            airSpinAccum: 0,
+            lastAirAngle: 0,
+            animPhase: 0,
+            stumbled: false,
+            ragdollParts: []
+          },
+
+          ai: {
+            // In Thief mode, AI Police starts 26m behind; in Police mode, AI Thief starts 32m ahead!
+            x: mode === 'thief' ? startX - 26 * PX_PER_METER : startX + 32 * PX_PER_METER,
+            y: 0,
+            vx: 185,
+            vy: 0,
+            angle: 0,
+            onGround: true,
+            activeLane: 1,
+            stunTimer: 0,
+            animPhase: 1.5
+          },
+
+          helicopter: {
+            active: false,
+            x: 0,
+            y: -260,
+            beamPhase: 0
+          },
+
+          camera: {
+            x: startX,
+            y: 0,
+            zoom: 1,
+            shake: 0
+          },
+
+          junctions: [],
+          generatedJunctionIdx: 0,
+          pickups: [],
+          obstacles: [],
+          droppedTraps: [],
+          particles: [],
+          popups: [],
+          nextItemSpawnX: startX + 260
+        };
+
+        // Pre-generate initial junctions & pickups
+        ensureWorldGenerated(state, startX + 4500);
+        const gy = getSurfaceY(state, state.player.x, 1);
+        state.player.y = gy;
+        state.ai.y = getSurfaceY(state, state.ai.x, 1);
+        state.camera.x = state.player.x + 150;
+        state.camera.y = state.player.y - 70;
+        return state;
+      }
+
+      // Base Hill-Climb Elevation Curve (smooth multi-frequency hills, ramps & valleys)
+      function rawHillCurve(x) {
+        if (x < 320) return 320;
+        const d = x - 320;
+        // Progressive hilliness: gentle first 900px, then thrilling steep hills & valleys
+        const ampScale = Math.min(1.38, 0.42 + d / 5200);
+        const h1 = Math.sin(d * 0.0029) * 95 * ampScale;
+        const h2 = Math.sin(d * 0.0067 + 1.1) * 52 * ampScale;
+        const h3 = Math.cos(d * 0.0131 + 2.4) * 24 * ampScale;
+        // Occasional parkour kicker ramp bump
+        const cycle = (d % 1650) / 1650;
+        const ramp = (cycle > 0.55 && cycle < 0.72)
+          ? -Math.sin(((cycle - 0.55) / 0.17) * Math.PI) * 56 * ampScale
+          : 0;
+        return 320 + h1 + h2 + h3 + ramp;
+      }
+
+      // Smoothly flattens terrain inside a 3-Path Junction corridor so all 3 stacked paths are crisp & readable
+      function getBaseGroundY(state, x) {
+        for (let i = 0; i < state.junctions.length; i++) {
+          const j = state.junctions[i];
+          const flatStart = j.splitX - 650;
+          const flatEnd = j.mergeX + 280;
+          if (x >= flatStart && x <= flatEnd) {
+            const raw = rawHillCurve(x);
+            let blend = 1;
+            if (x < j.splitX - 250) {
+              blend = (x - flatStart) / 400;
+            } else if (x > j.mergeX) {
+              blend = 1 - (x - j.mergeX) / 280;
+            }
+            blend = blend * blend * (3 - 2 * blend); // smoothstep
+            return raw * (1 - blend) + j.anchorY * blend;
+          }
+        }
+        return rawHillCurve(x);
+      }
+
+      // Returns exact Y height of ground at world X for a given lane (0 = UP, 1 = MID, 2 = DOWN)
+      function getSurfaceY(state, x, lane) {
+        const base = getBaseGroundY(state, x);
+        for (let i = 0; i < state.junctions.length; i++) {
+          const j = state.junctions[i];
+          if (x >= j.splitX && x <= j.mergeX) {
+            const targetOffset = (lane - 1) * LANE_OFFSET_Y;
+            let t = 1;
+            const rampLen = 250;
+            if (x < j.splitX + rampLen) {
+              t = (x - j.splitX) / rampLen;
+            } else if (x > j.mergeX - rampLen) {
+              t = (j.mergeX - x) / rampLen;
+            }
+            t = Math.max(0, Math.min(1, t));
+            t = t * t * (3 - 2 * t);
+            return base + targetOffset * t;
+          }
+        }
+        return base;
+      }
+
+      function getSurfaceSlope(state, x, lane) {
+        const eps = 6;
+        const y1 = getSurfaceY(state, x - eps, lane);
+        const y2 = getSurfaceY(state, x + eps, lane);
+        return Math.atan2(y2 - y1, eps * 2);
+      }
+
+      function findJunctionAt(state, x, padBefore = 0, padAfter = 0) {
+        for (let i = 0; i < state.junctions.length; i++) {
+          const j = state.junctions[i];
+          if (x >= j.splitX - padBefore && x <= j.mergeX + padAfter) return j;
+        }
+        return null;
+      }
+
+      function ensureWorldGenerated(state, aheadX) {
+        // 1. Generate upcoming 3-Path Junctions
+        while (true) {
+          const nextNum = state.generatedJunctionIdx + 1;
+          const splitX = state.startX + nextNum * JUNCTION_INTERVAL_M * PX_PER_METER;
+          if (splitX > aheadX + 1800) break;
+
+          const safeLane = Math.floor(Math.random() * 3); // 0, 1, or 2
+          const shuffledTraps = [...TRAP_TYPES].sort(() => Math.random() - 0.5);
+          const laneData = [null, null, null];
+          let tIdx = 0;
+          for (let l = 0; l < 3; l++) {
+            if (l === safeLane) {
+              laneData[l] = { safe: true, trap: null };
+            } else {
+              laneData[l] = { safe: false, trap: shuffledTraps[tIdx++] };
+            }
+          }
+
+          const mergeX = splitX + 1220;
+          const jObj = {
+            index: nextNum,
+            splitX,
+            mergeX,
+            anchorY: Math.max(255, Math.min(395, rawHillCurve(splitX))),
+            safeLane,
+            lanes: laneData,
+            playerLocked: false,
+            rewarded: false
+          };
+          state.junctions.push(jObj);
+          state.generatedJunctionIdx = nextNum;
+
+          // Populate SAFE route inside junction with rewarding Coins + Energy Drink (veiled behind mystery mist until committed!)
+          for (let cx = splitX + 330; cx <= mergeX - 310; cx += 72) {
+            state.pickups.push({
+              x: cx,
+              lane: safeLane,
+              offsetY: -34,
+              type: 'coin',
+              juncSplitX: splitX,
+              collected: false
+            });
+          }
+          state.pickups.push({
+            x: (splitX + mergeX) * 0.5,
+            lane: safeLane,
+            offsetY: -40,
+            type: 'energy',
+            juncSplitX: splitX,
+            collected: false
+          });
+        }
+
+        // 2. Populate regular hills between junctions with Coins, Energy Drinks, Gadget Boxes & Vaultable Obstacles!
+        while (state.nextItemSpawnX < aheadX) {
+          const sx = state.nextItemSpawnX;
+          const inJunc = findJunctionAt(state, sx, 220, 150);
+          if (!inJunc) {
+            const roll = Math.random();
+            if (roll < 0.44) {
+              // Arc of 4-6 coins along hill contour (sometimes arched over a vaultable roadblock!)
+              const hasObstacleUnderArc = sx > state.startX + 420 && Math.random() < 0.48;
+              const count = 5;
+              for (let c = 0; c < count; c++) {
+                const arcH = hasObstacleUnderArc ? Math.sin((c / (count - 1)) * Math.PI) * 78 : 0;
+                state.pickups.push({
+                  x: sx + c * 48,
+                  lane: 1,
+                  offsetY: -34 - arcH,
+                  type: 'coin',
+                  collected: false
+                });
+              }
+              if (hasObstacleUnderArc) {
+                state.obstacles.push({
+                  x: sx + 96,
+                  kind: Math.random() < 0.65 ? 'barricade' : 'barrel',
+                  smashed: false,
+                  cleared: false
+                });
+              }
+            } else if (roll < 0.72) {
+              // Stamina Energy Drink
+              state.pickups.push({
+                x: sx,
+                lane: 1,
+                offsetY: -36,
+                type: 'energy',
+                collected: false
+              });
+            } else if (roll < 0.87) {
+              // Standalone Vaultable Obstacle (Barricade or Rolling Barrel)
+              if (sx > state.startX + 420) {
+                state.obstacles.push({
+                  x: sx,
+                  kind: Math.random() < 0.55 ? 'barricade' : 'barrel',
+                  smashed: false,
+                  cleared: false
+                });
+              }
+            } else {
+              // Gadget Power-up Crate (Smoke/Banana or Jetpack!)
+              state.pickups.push({
+                x: sx,
+                lane: 1,
+                offsetY: -38,
+                type: Math.random() < 0.62 ? 'trapBox' : 'jetBox',
+                collected: false
+              });
+            }
+          }
+          state.nextItemSpawnX += 320 + Math.random() * 200;
+        }
+
+        // Cleanup old entities far behind camera
+        const minKeepX = Math.min(state.player.x, state.ai.x) - 1400;
+        if (state.pickups.length > 180) {
+          state.pickups = state.pickups.filter(p => !p.collected && p.x > minKeepX);
+        }
+        if (state.obstacles.length > 60) {
+          state.obstacles = state.obstacles.filter(o => o.x > minKeepX);
+        }
+        if (state.junctions.length > 6) {
+          state.junctions = state.junctions.filter(j => j.mergeX > minKeepX);
+        }
+      }
+
+      // =========================================================================
+      // 6. GADGETS, RAGDOLL CRASH & HELPER FX
+      // =========================================================================
+      function addPopup(state, x, y, text, color = '#fde047', scale = 1) {
+        state.popups.push({ x, y, vy: -52, text, color, life: 1.35, maxLife: 1.35, scale });
+      }
+
+      function spawnParticles(state, x, y, count, color, speedMin = 40, speedMax = 200, size = 4, life = 0.65) {
+        for (let i = 0; i < count; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const spd = speedMin + Math.random() * (speedMax - speedMin);
+          state.particles.push({
+            x,
+            y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 45,
+            size: size * (0.6 + Math.random() * 0.8),
+            color,
+            life: life * (0.7 + Math.random() * 0.5),
+            maxLife: life
+          });
+        }
+      }
+
+      function useTrapGadget() {
+        if (!game || !game.running || game.gameOver) return;
+        const p = game.player;
+        if (p.trapsLeft <= 0) {
+          addPopup(game, p.x, p.y - 70, 'স্মোক/কলা শেষ!', '#fca5a5', 0.9);
+          return;
+        }
+        p.trapsLeft--;
+        AudioFX.trapThrow();
+
+        if (game.mode === 'thief') {
+          // Drop Smoke Bomb + Banana Peel behind player to blind/slip AI Police!
+          game.droppedTraps.push({
+            x: p.x - 36,
+            y: p.y - 8,
+            vx: -90,
+            vy: -120,
+            lane: p.activeLane,
+            target: 'ai',
+            kind: Math.random() < 0.5 ? 'smoke' : 'banana',
+            active: true
+          });
+          addPopup(game, p.x, p.y - 75, '🍌💨 ফাঁদ ছোড়া হয়েছে!', '#fcd34d', 1);
+        } else {
+          // Police mode: lob Stun Smoke Grenade forward at fleeing Thief!
+          game.droppedTraps.push({
+            x: p.x + 35,
+            y: p.y - 42,
+            vx: p.vx + 430,
+            vy: -260,
+            lane: p.activeLane,
+            target: 'ai',
+            kind: 'smoke',
+            active: true
+          });
+          addPopup(game, p.x, p.y - 75, '💨 স্টান গ্রেনেড নিক্ষেপ!', '#38bdf8', 1);
+        }
+        syncHudButtons();
+      }
+
+      function useJetpackGadget() {
+        if (!game || !game.running || game.gameOver) return;
+        const p = game.player;
+        if (p.jetpacksLeft <= 0 || p.jetpackTimer > 0.4) {
+          if (p.jetpacksLeft <= 0) addPopup(game, p.x, p.y - 70, 'জেটপ্যাক নেই!', '#93c5fd', 0.9);
+          return;
+        }
+        p.jetpacksLeft--;
+        p.jetpackTimer = 4.6;
+        p.vy = -210;
+        p.onGround = false;
+        p.stamina = Math.min(game.stats.maxStamina, p.stamina + 25);
+        AudioFX.energy();
+        spawnParticles(game, p.x, p.y - 25, 22, '#38bdf8', 60, 260, 6, 0.7);
+        addPopup(game, p.x, p.y - 85, '🚀 জেটপ্যাক বুস্ট সক্রিয়!', '#38bdf8', 1.15);
+        syncHudButtons();
+      }
+
+      function triggerGameOver(state, titleBn, reasonBn) {
+        if (state.gameOver) return;
+        state.gameOver = true;
+        state.overTimer = 1.35;
+        state.player.stumbled = true;
+        state.camera.shake = 18;
+        AudioFX.crash();
+
+        // Spawn multi-part physics ragdoll bones for hilarious Hill-Climb style tumble!
+        const p = state.player;
+        const colors = state.mode === 'thief'
+          ? ['#f8fafc', '#1e293b', '#ef4444', '#f59e0b']
+          : ['#38bdf8', '#1d4ed8', '#eab308', '#0f172a'];
+        for (let i = 0; i < 6; i++) {
+          p.ragdollParts.push({
+            x: p.x + (Math.random() - 0.5) * 18,
+            y: p.y - 28 + (Math.random() - 0.5) * 24,
+            vx: p.vx * 0.55 + (Math.random() - 0.5) * 220,
+            vy: -160 - Math.random() * 220,
+            rot: Math.random() * Math.PI,
+            vrot: (Math.random() - 0.5) * 16,
+            len: i === 0 ? 11 : 18,
+            isHead: i === 0,
+            color: colors[i % colors.length]
+          });
+        }
+        spawnParticles(state, p.x, p.y - 25, 30, '#f87171', 50, 290, 5.5, 0.9);
+
+        // Save run progress
+        const distM = Math.max(0, Math.floor((p.x - state.startX) / PX_PER_METER));
+        saveData.coins += state.coinsRun;
+        if (distM > saveData.bestDist) {
+          saveData.bestDist = distM;
+        }
+        persistSave();
+
+        state.endSummary = { titleBn, reasonBn, distM };
+      }
+
+      // =========================================================================
+      // 7. MAIN PHYSICS & GAMEPLAY SIMULATION STEP
+      // =========================================================================
+      function updateGame(dt) {
+        if (!game || !game.running) return;
+        const s = game;
+        s.time += dt;
+
+        // If already stumbled/crashed, simulate ragdoll & show Game Over screen cleanly after dramatic beat
+        if (s.gameOver) {
+          s.overTimer -= dt;
+          updateRagdollParts(s, dt);
+          updateParticlesAndPopups(s, dt);
+          s.camera.shake = Math.max(0, s.camera.shake - dt * 28);
+          AudioFX.updateSiren(true, 1, s.wantedStars, s.time);
+          if (s.overTimer <= 0 && ui.menuModal.classList.contains('hidden')) {
+            AudioFX.updateSiren(false, 0, 1, s.time);
+            openMenuWithSummary(s.endSummary);
+          }
+          return;
+        }
+
+        const p = s.player;
+        const ai = s.ai;
+        const st = s.stats;
+
+        ensureWorldGenerated(s, Math.max(p.x, ai.x) + 3600);
+
+        const distMeters = Math.max(0, (p.x - s.startX) / PX_PER_METER);
+
+        // 1. Dynamic Wanted Star System (1★ to 5★)
+        const newStars = distMeters < 320 ? 1
+          : distMeters < 720 ? 2
+          : distMeters < 1200 ? 3
+          : distMeters < 1750 ? 4 : 5;
+        if (newStars > s.wantedStars) {
+          s.wantedStars = newStars;
+          addPopup(s, p.x, p.y - 95, `🚨 WANTED LEVEL ${'★'.repeat(newStars)}!`, '#f87171', 1.25);
+          AudioFX.stunt();
+        }
+
+        // Helicopter activates at 3★+
+        s.helicopter.active = s.wantedStars >= 3;
+        if (s.helicopter.active) {
+          const targetHeliX = p.x + Math.sin(s.time * 1.3) * 140 + 70;
+          s.helicopter.x += (targetHeliX - s.helicopter.x) * Math.min(1, dt * 3.5);
+          s.helicopter.y += ((p.y - 310 + Math.cos(s.time * 2.1) * 16) - s.helicopter.y) * Math.min(1, dt * 3.5);
+          s.helicopter.beamPhase += dt * 2.2;
+        }
+
+        // 2. Check Junction Lock-in & Safe Route Completion
+        const approachJunc = findJunctionAt(s, p.x, st.clueLeadPx, 60);
+        const showJuncAlert = Boolean(approachJunc && p.x < approachJunc.splitX + 180);
+        ui.junctionBanner.classList.toggle('hidden', !showJuncAlert);
+        if (showJuncAlert) {
+          const laneNamesBn = ['▲ উপরে [1]', '● মাঝে [2]', '▼ নিচে [3]'];
+          ui.junctionBanner.innerHTML = `<span>⚠️ সামনে ৩-রাস্তার মোড়! সূক্ষ্ম সংকেত দেখে পথ বাছুন • বর্তমান পছন্দ: <b class="text-emerald-300 underline">${laneNamesBn[s.selectedLane]}</b></span>`;
+        }
+        ui.laneSelectorBox.classList.toggle('border-amber-400', showJuncAlert);
+        ui.laneSelectorBox.classList.toggle('scale-105', showJuncAlert);
+
+        const activeJunc = findJunctionAt(s, p.x, 10, 10);
+        if (activeJunc) {
+          // Smoothly allow lane switching right up to splitX + 130px, then commit lane on the bridge/tunnel/valley!
+          if (p.x < activeJunc.splitX + 130) {
+            p.activeLane = s.selectedLane;
+          } else if (!activeJunc.playerLocked) {
+            activeJunc.playerLocked = true;
+            p.activeLane = s.selectedLane;
+          }
+
+          // Check Deadly Trap collision inside corridor!
+          const trapStart = activeJunc.splitX + 330;
+          const trapEnd = activeJunc.mergeX - 300;
+          const chosenInfo = activeJunc.lanes[p.activeLane];
+          if (!chosenInfo.safe && p.x > trapStart && p.x < trapEnd) {
+            const laneFloorY = getSurfaceY(s, p.x, p.activeLane);
+            // If flying high on Jetpack (> 58px above track), player heroically flies OVER deadly trap!
+            if (p.jetpackTimer > 0 && p.y < laneFloorY - 52) {
+              if (!activeJunc.jetSavedNote) {
+                activeJunc.jetSavedNote = true;
+                addPopup(s, p.x, p.y - 70, '🚀 জেটপ্যাকে মৃত্যুফাঁদ পার!', '#38bdf8', 1.15);
+              }
+            } else if (p.y >= laneFloorY - 38) {
+              triggerGameOver(s, '☠️ ভুল রাস্তার মৃত্যুফাঁদ!', chosenInfo.trap.nameBn);
+              return;
+            }
+          }
+
+          // Reward crossing Safe Route!
+          if (!activeJunc.rewarded && p.x > activeJunc.mergeX - 180) {
+            activeJunc.rewarded = true;
+            const bonus = 40 + s.wantedStars * 10;
+            s.coinsRun += bonus;
+            p.adrenalineTimer = Math.max(p.adrenalineTimer, 2.2);
+            AudioFX.safeRoute();
+            addPopup(s, p.x, p.y - 85, `✅ সঠিক রাস্তা! +${bonus}🪙`, '#4ade80', 1.2);
+          }
+        } else {
+          p.activeLane = 1;
+        }
+
+        // 3. Player Physics: Stamina, Jetpack, Hill-Climb Balance & Parkour Flip Detection
+        if (p.adrenalineTimer > 0) p.adrenalineTimer -= dt;
+
+        const slopeAngle = getSurfaceSlope(s, p.x, p.activeLane);
+        const groundY = getSurfaceY(s, p.x, p.activeLane);
+
+        // Jump input
+        if (keys.jumpQueued) {
+          keys.jumpQueued = false;
+          if (p.onGround || (groundY - p.y < 22 && p.vy >= -40)) {
+            p.vy = -515;
+            p.onGround = false;
+            p.stamina = Math.max(0, p.stamina - 3.2);
+            AudioFX.jump();
+            spawnParticles(s, p.x, groundY, 9, '#cbd5e1', 30, 130, 4.5, 0.45);
+          }
+        }
+
+        // Stamina & Horizontal Acceleration
+        const exhausted = p.stamina <= 0.5;
+        const boostMult = p.adrenalineTimer > 0 ? 1.28 : 1.0;
+
+        if (p.jetpackTimer > 0) {
+          // JETPACK FLIGHT MODE
+          p.jetpackTimer -= dt;
+          const desiredFlyY = groundY - 108;
+          p.vy += ((desiredFlyY - p.y) * 7.5 - p.vy * 4.2) * dt * 6;
+          p.vx = Math.min(st.maxSpeed * 1.42, p.vx + 680 * dt);
+          p.onGround = false;
+          // Gently level angle while flying
+          p.angle += (0.18 - p.angle) * Math.min(1, dt * 7);
+          p.angVel = 0;
+          p.airSpinAccum = 0;
+          AudioFX.jetpackTick();
+          if (Math.random() < 0.75) {
+            spawnParticles(s, p.x - 16, p.y - 22, 2, Math.random() < 0.5 ? '#f97316' : '#38bdf8', 70, 190, 5, 0.35);
+          }
+        } else {
+          // STANDARD HILL-CLIMB RUNNING & RAGDOLL BALANCE PHYSICS
+          if (p.onGround) {
+            // Slope gravity push (uphill slows you down unless sprinting & leaning forward; downhill speeds you up!)
+            const slopeForce = Math.sin(slopeAngle) * 430;
+            p.vx += slopeForce * dt;
+
+            if (keys.sprint && !exhausted) {
+              // Leaning forward improves uphill traction (Hill Climb style!)
+              const leanTraction = 1 + Math.max(0, Math.sin(-slopeAngle)) * (p.angle > slopeAngle ? 0.25 : 0);
+              p.vx += st.accel * boostMult * leanTraction * dt;
+              if (p.adrenalineTimer <= 0) {
+                p.stamina = Math.max(0, p.stamina - st.staminaDrain * dt);
+              }
+            } else if (keys.brake) {
+              p.vx -= 640 * dt;
+              p.stamina = Math.min(st.maxStamina, p.stamina + 4.5 * dt);
+            } else {
+              // Natural coasting friction + slight breath recovery on easy slopes
+              p.vx -= p.vx * 1.35 * dt;
+              if (!exhausted) {
+                // Keep gentle minimum jog if player hasn't pressed anything right at start
+                if (p.vx < 120) p.vx += 240 * dt;
+                p.stamina = Math.min(st.maxStamina, p.stamina + 3.0 * dt);
+              }
+            }
+
+            const cap = exhausted ? 155 : st.maxSpeed * boostMult;
+            p.vx = Math.max(35, Math.min(cap, p.vx));
+
+            // Center-of-Gravity Torso Tilt on Hills!
+            // Steep climbs naturally pitch torso backward unless player leans forward [D]; fast descents pitch forward unless player leans back [A]!
+            const hillTipTorque = -Math.sin(slopeAngle) * (p.vx / 260) * 2.4;
+            let playerLeanInput = 0;
+            if (keys.sprint) playerLeanInput += 4.6;
+            if (keys.brake) playerLeanInput -= 5.2;
+
+            const targetAngle = slopeAngle * 0.85;
+            const springBack = (targetAngle - p.angle) * st.selfRighting;
+            p.angVel += (hillTipTorque + playerLeanInput + springBack - p.angVel * 5.2) * dt;
+            p.angle += p.angVel * dt;
+
+            // Check extreme imbalance stumble on steep slope
+            if (Math.abs(p.angle - slopeAngle) > st.crashAngleLimit + 0.22) {
+              triggerGameOver(s, '🤸 ব্যালেন্স হারিয়ে হোঁচট!', 'পাহাড়ি ঢালে শরীরের ভারসাম্য হারিয়ে পড়ে গেছেন!');
+              return;
+            }
+
+            // Snap to hill or launch off crest when cresting fast!
+            const nextGroundY = getSurfaceY(s, p.x + p.vx * dt, p.activeLane);
+            const dropDelta = nextGroundY - groundY;
+            p.x += p.vx * dt;
+            if (dropDelta > 11 && p.vx > 275) {
+              // Natural Hill-Climb ramp launch off hill crests!
+              p.onGround = false;
+              p.vy = Math.sin(slopeAngle) * p.vx * 0.85 - 35;
+              p.lastAirAngle = p.angle;
+              p.airSpinAccum = 0;
+            } else {
+              p.y = nextGroundY;
+              p.vy = 0;
+            }
+
+            // Footstep sound & dust
+            if (p.vx > 95) {
+              AudioFX.step(p.vx / st.maxSpeed);
+              if (Math.random() < 0.28) {
+                spawnParticles(s, p.x - 8, p.y - 2, 1, p.adrenalineTimer > 0 ? '#facc15' : '#94a3b8', 20, 75, 3.5, 0.35);
+              }
+            }
+          } else {
+            // AIRBORNE PHYSICS & 360° PARKOUR FLIP CONTROL!
+            p.vy += 1260 * dt; // Crisp arcade-physics gravity
+            if (keys.sprint) {
+              // Sprint = Frontflip torque (clockwise) + slight air forward drive
+              p.angVel += st.airTorque * 2.35 * dt;
+              p.vx = Math.min(st.maxSpeed * boostMult * 1.12, p.vx + 130 * dt);
+            } else if (keys.brake) {
+              // Brake = Backflip torque (counter-clockwise)
+              p.angVel -= st.airTorque * 2.55 * dt;
+              p.vx = Math.max(70, p.vx - 95 * dt);
+            } else {
+              // Slight angular damping when neutral
+              p.angVel *= (1 - 1.6 * dt);
+            }
+            p.angVel = Math.max(-11.5, Math.min(11.5, p.angVel));
+            const prevAngle = p.angle;
+            p.angle += p.angVel * dt;
+            p.airSpinAccum += (p.angle - prevAngle);
+
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+
+            // Check landing with ground surface
+            const newGroundY = getSurfaceY(s, p.x, p.activeLane);
+            if (p.y >= newGroundY && p.vy >= 0) {
+              const landSlope = getSurfaceSlope(s, p.x, p.activeLane);
+              // Normalize angle difference to [-PI, PI]
+              let diff = (p.angle - landSlope) % (Math.PI * 2);
+              if (diff > Math.PI) diff -= Math.PI * 2;
+              if (diff < -Math.PI) diff += Math.PI * 2;
+
+              if (Math.abs(diff) > st.crashAngleLimit) {
+                // NECK FLIP / HEAD LANDING WIPEOUT!
+                triggerGameOver(s, '💥 ঘাড় ভেঙে উল্টে পড়েছেন! (NECK FLIP!)', 'লাফ দিয়ে ল্যান্ড করার সময় শরীর সোজা রাখতে পারেননি!');
+                return;
+              }
+
+              // Clean Landing! Check 360° Frontflip / Backflip Stunt Bonus!
+              const flips = Math.floor((Math.abs(p.airSpinAccum) + 0.72) / (Math.PI * 2));
+              if (flips >= 1) {
+                const isFront = p.airSpinAccum > 0;
+                const coinReward = flips * 35;
+                s.flipsRun += flips;
+                s.coinsRun += coinReward;
+                p.adrenalineTimer = 3.2;
+                p.stamina = Math.min(st.maxStamina, p.stamina + 22);
+                AudioFX.stunt();
+                spawnParticles(s, p.x, newGroundY - 10, 22, '#facc15', 60, 250, 5, 0.7);
+                addPopup(
+                  s,
+                  p.x,
+                  newGroundY - 90,
+                  `🔥 ${flips > 1 ? flips + 'x ' : ''}${isFront ? 'FRONTFLIP' : 'BACKFLIP'}! +${coinReward}🪙 BOOST!`,
+                  '#fde047',
+                  1.22
+                );
+              } else {
+                spawnParticles(s, p.x, newGroundY, 7, '#cbd5e1', 25, 95, 3.5, 0.35);
+              }
+
+              p.y = newGroundY;
+              p.vy = 0;
+              p.onGround = true;
+              p.angle = landSlope + diff * 0.35;
+              p.angVel *= 0.2;
+              p.airSpinAccum = 0;
+            }
+          }
+        }
+
+        // Player Walk/Run Limb Cycle
+        p.animPhase += (p.onGround ? p.vx * 0.042 : p.vx * 0.016) * dt;
+
+        // 4. AI Chaser / Quarry Simulation
+        updateAICharacter(s, dt);
+
+        // 4b. Update Vaultable Road Obstacles (Barricades & Rolling Barrels)
+        for (let i = 0; i < s.obstacles.length; i++) {
+          const ob = s.obstacles[i];
+          if (ob.smashed) continue;
+          const oy = getSurfaceY(s, ob.x, 1);
+
+          // AI automatically vaults over road obstacles ahead of it!
+          const aiDist = ob.x - ai.x;
+          if (aiDist > 12 && aiDist < 72 && ai.onGround && ai.stunTimer <= 0) {
+            ai.vy = -445;
+            ai.onGround = false;
+          }
+
+          // Player vault or collision check
+          const dx = p.x - ob.x;
+          if (Math.abs(dx) < 26) {
+            const clearance = oy - p.y;
+            if (clearance < 34 && p.jetpackTimer <= 0) {
+              // Smashed straight into barricade/barrel without jumping high enough!
+              ob.smashed = true;
+              p.vx *= 0.44;
+              p.stamina = Math.max(0, p.stamina - 13);
+              p.angVel += 4.2;
+              s.camera.shake = 12;
+              AudioFX.crash();
+              spawnParticles(s, ob.x, oy - 18, 18, ob.kind === 'barricade' ? '#f97316' : '#ef4444', 50, 220, 5, 0.65);
+              addPopup(s, p.x, p.y - 78, '🚧 বাধায় ধাক্কা! গতি ও দম কমেছে!', '#fca5a5', 1.05);
+            }
+          } else if (!ob.cleared && dx >= 26 && dx < 95) {
+            // Cleanly vaulted over the obstacle!
+            ob.cleared = true;
+            s.coinsRun += 5;
+            AudioFX.coin();
+            addPopup(s, p.x, p.y - 68, '🦘 নিখুঁত লাফ! +5🪙', '#67e8f9', 0.95);
+          }
+        }
+
+        // 5. Update Pickups (Coins, Energy Drinks, Gadget Boxes)
+        const magnetR = 46 + st.visionLevel * 5;
+        for (let i = 0; i < s.pickups.length; i++) {
+          const item = s.pickups[i];
+          if (item.collected) continue;
+          if (Math.abs(item.x - p.x) > 130) continue;
+          const iy = getSurfaceY(s, item.x, item.lane) + item.offsetY;
+          const dx = item.x - p.x;
+          const dy = iy - (p.y - 30);
+          if (dx * dx + dy * dy < magnetR * magnetR) {
+            item.collected = true;
+            if (item.type === 'coin') {
+              const val = Math.random() < st.coinBonusChance ? 10 : 5;
+              s.coinsRun += val;
+              AudioFX.coin();
+              spawnParticles(s, item.x, iy, 7, '#facc15', 30, 120, 3.5, 0.4);
+            } else if (item.type === 'energy') {
+              p.stamina = Math.min(st.maxStamina, p.stamina + st.maxStamina * 0.58);
+              AudioFX.energy();
+              spawnParticles(s, item.x, iy, 14, '#4ade80', 40, 170, 4.5, 0.55);
+              addPopup(s, p.x, p.y - 75, '⚡ +স্ট্যামিনা ফুল রিচার্জ!', '#4ade80', 1.05);
+            } else if (item.type === 'trapBox') {
+              p.trapsLeft = Math.min(5, p.trapsLeft + 1);
+              AudioFX.energy();
+              addPopup(s, p.x, p.y - 75, '🍌💨 +১ গ্যাজেট পেলেন!', '#fcd34d', 1.05);
+              syncHudButtons();
+            } else if (item.type === 'jetBox') {
+              p.jetpacksLeft = Math.min(3, p.jetpacksLeft + 1);
+              AudioFX.stunt();
+              addPopup(s, p.x, p.y - 75, '🚀 +১ জেটপ্যাক পেলেন!', '#38bdf8', 1.1);
+              syncHudButtons();
+            }
+          }
+        }
+
+        // 6. Update Thrown Gadgets (Banana Peel / Smoke Bomb)
+        for (let i = s.droppedTraps.length - 1; i >= 0; i--) {
+          const t = s.droppedTraps[i];
+          if (!t.active) {
+            s.droppedTraps.splice(i, 1);
+            continue;
+          }
+          const floorY = getSurfaceY(s, t.x, t.lane);
+          if (t.y < floorY - 4 || t.vy < 0) {
+            t.vy += 980 * dt;
+            t.x += t.vx * dt;
+            t.y += t.vy * dt;
+            if (t.y >= floorY - 4) {
+              t.y = floorY - 4;
+              t.vx = 0;
+              t.vy = 0;
+            }
+          }
+          // Check collision with AI!
+          if (Math.abs(t.x - ai.x) < 46 && Math.abs(t.y - ai.y) < 75 && ai.stunTimer <= 0.2) {
+            t.active = false;
+            ai.stunTimer = 2.9;
+            ai.vx *= 0.28;
+            AudioFX.slipHit();
+            spawnParticles(s, ai.x, ai.y - 28, 28, t.kind === 'smoke' ? '#cbd5e1' : '#fde047', 35, 190, 9, 0.95);
+            addPopup(
+              s,
+              ai.x,
+              ai.y - 80,
+              s.mode === 'thief' ? '💥 পুলিশ স্লিপ খেয়েছে! স্লো!' : '💥 চোর স্টান হয়েছে! ধরুন!',
+              '#fde047',
+              1.15
+            );
+          } else if (Math.abs(t.x - p.x) > 1800) {
+            t.active = false;
+          }
+        }
+
+        // 7. Chase Win/Loss Check + Heartbeat & Siren Intensity
+        const gapMeters = (p.x - ai.x) / PX_PER_METER; // Positive in Thief mode; Negative in Police mode
+        if (s.mode === 'thief') {
+          if (gapMeters <= 1.35) {
+            triggerGameOver(
+              s,
+              '🚨 পুলিশ ধরে ফেলেছে! (BUSTED!)',
+              exhausted ? 'দম (Stamina) শেষ হয়ে যাওয়ায় পুলিশ আপনাকে পাকড়াও করেছে!' : 'গতি কমে যাওয়ায় পেছনের পুলিশ আপনাকে ধরে ফেলেছে!'
+            );
+            return;
+          }
+          const closeness = 1 - Math.min(1, Math.max(0, (gapMeters - 2) / 34));
+          AudioFX.updateSiren(true, closeness, s.wantedStars, s.time);
+          if (gapMeters < 13 || p.stamina / st.maxStamina < 0.24) {
+            AudioFX.heartbeat(Math.max(closeness, 0.75));
+          }
+          ui.sirenOverlay.style.opacity = closeness > 0.45 ? String((closeness - 0.45) * 1.65) : '0';
+        } else {
+          // POLICE MODE: AI Thief runs ahead (ai.x > p.x -> gapMeters is negative, distAhead = -gapMeters)
+          const distAhead = -gapMeters;
+          if (distAhead <= 1.6) {
+            // CAUGHT THE THIEF! Big Bounty Reward + Spawn faster next fugitive ahead so the run continues!
+            s.bountiesCaught++;
+            const bounty = 85 + s.wantedStars * 25;
+            s.coinsRun += bounty;
+            p.stamina = Math.min(st.maxStamina, p.stamina + 45);
+            p.adrenalineTimer = 2.6;
+            AudioFX.stunt();
+            spawnParticles(s, ai.x, ai.y - 30, 32, '#38bdf8', 60, 260, 6, 0.85);
+            addPopup(s, p.x, p.y - 95, `🚔 চোর গ্রেপ্তার #${s.bountiesCaught}! +${bounty}🪙 বাউন্টি!`, '#38bdf8', 1.3);
+            // Next fugitive bursts out 36m ahead!
+            ai.x = p.x + 36 * PX_PER_METER;
+            ai.stunTimer = 0;
+            ai.vx = p.vx * 0.95;
+          } else if (distAhead > 72) {
+            triggerGameOver(s, '💨 চোর পালিয়ে গেছে! (ESCAPED!)', 'পলাতক চোর আপনার নাগালের বাইরে চলে গেছে!');
+            return;
+          }
+          AudioFX.updateSiren(true, 0.65, s.wantedStars, s.time);
+          if (distAhead > 54 || p.stamina / st.maxStamina < 0.24) {
+            AudioFX.heartbeat(0.8);
+          }
+          ui.sirenOverlay.style.opacity = '0.28';
+        }
+
+        // 8. Smooth Camera & Zoom Framing (Zooms wider automatically at 3-Path Junctions!)
+        const targetZoom = approachJunc ? 0.76 : 0.94;
+        s.camera.zoom += (targetZoom - s.camera.zoom) * Math.min(1, dt * 3.2);
+        const lookAhead = s.mode === 'thief' ? 165 : 230;
+        const targetCamX = p.x + lookAhead;
+        const targetCamY = approachJunc
+          ? approachJunc.anchorY - 22
+          : p.y - 68;
+        s.camera.x += (targetCamX - s.camera.x) * Math.min(1, dt * 7.5);
+        s.camera.y += (targetCamY - s.camera.y) * Math.min(1, dt * 5.2);
+        s.camera.shake = Math.max(0, s.camera.shake - dt * 25);
+
+        updateParticlesAndPopups(s, dt);
+        updateHUD(s, distMeters, gapMeters);
+      }
+
+      function updateAICharacter(s, dt) {
+        const ai = s.ai;
+        const p = s.player;
+
+        // AI intelligently selects the SAFE path at every 3-Path Junction!
+        const aiJunc = findJunctionAt(s, ai.x, 20, 20);
+        ai.activeLane = aiJunc ? aiJunc.safeLane : 1;
+
+        if (ai.stunTimer > 0) {
+          ai.stunTimer -= dt;
+        }
+
+        let targetSpeed;
+        if (s.mode === 'thief') {
+          // Rubber-banding tense chase + Wanted Star scaling so Police is ALWAYS excitingly close!
+          const gapM = (p.x - ai.x) / PX_PER_METER;
+          const starBonus = (s.wantedStars - 1) * 19;
+          targetSpeed = 358 + starBonus;
+          if (gapM > 34) {
+            // Rubber-band catch-up if player gets very far ahead so radar stays thrilling
+            targetSpeed += (gapM - 34) * 7.5;
+          } else if (gapM < 8 && p.vx > 230 && p.stamina > 12) {
+            // Fair play: if player is sprinting well, police stays right on their heels without unfair instant teleport
+            targetSpeed = Math.min(targetSpeed, p.vx + 14);
+          }
+          if (p.stamina <= 1) {
+            // Exhausted player gets hunted down fast!
+            targetSpeed += 95;
+          }
+        } else {
+          // Police Mode: AI Thief flees briskly ahead!
+          targetSpeed = 352 + (s.wantedStars - 1) * 18 + s.bountiesCaught * 12;
+        }
+
+        if (ai.stunTimer > 0) {
+          targetSpeed *= 0.36;
+          if (Math.random() < 0.35) {
+            spawnParticles(s, ai.x, ai.y - 36, 1, '#e2e8f0', 15, 55, 6, 0.4);
+          }
+        }
+
+        ai.vx += (targetSpeed - ai.vx) * Math.min(1, dt * 3.4);
+        ai.x += ai.vx * dt;
+        const gY = getSurfaceY(s, ai.x, ai.activeLane);
+        const slope = getSurfaceSlope(s, ai.x, ai.activeLane);
+        if (!ai.onGround) {
+          ai.vy += 1240 * dt;
+          ai.y += ai.vy * dt;
+          if (ai.y >= gY) {
+            ai.y = gY;
+            ai.vy = 0;
+            ai.onGround = true;
+          }
+        } else {
+          ai.y += (gY - ai.y) * Math.min(1, dt * 16);
+        }
+        ai.angle += (slope * 0.7 - ai.angle) * Math.min(1, dt * 10);
+        ai.animPhase += ai.vx * 0.044 * dt;
+      }
+
+      function updateRagdollParts(s, dt) {
+        const parts = s.player.ragdollParts;
+        for (let i = 0; i < parts.length; i++) {
+          const b = parts[i];
+          b.vy += 1150 * dt;
+          b.x += b.vx * dt;
+          b.y += b.vy * dt;
+          b.rot += b.vrot * dt;
+          const gy = getSurfaceY(s, b.x, s.player.activeLane);
+          if (b.y > gy - 6) {
+            b.y = gy - 6;
+            b.vy *= -0.42;
+            b.vx *= 0.76;
+            b.vrot *= 0.72;
+          }
+        }
+      }
+
+      function updateParticlesAndPopups(s, dt) {
+        for (let i = s.particles.length - 1; i >= 0; i--) {
+          const pt = s.particles[i];
+          pt.life -= dt;
+          if (pt.life <= 0) {
+            s.particles.splice(i, 1);
+            continue;
+          }
+          pt.x += pt.vx * dt;
+          pt.y += pt.vy * dt;
+          pt.vy += 260 * dt;
+        }
+        for (let i = s.popups.length - 1; i >= 0; i--) {
+          const pop = s.popups[i];
+          pop.life -= dt;
+          if (pop.life <= 0) {
+            s.popups.splice(i, 1);
+            continue;
+          }
+          pop.y += pop.vy * dt;
+          pop.vy *= 0.94;
+        }
+      }
+
+      function updateHUD(s, distMeters, gapMeters) {
+        ui.hudCoins.textContent = String(s.coinsRun);
+        ui.hudDistance.textContent = `${Math.floor(distMeters)}m`;
+        ui.wantedStars.textContent = '★'.repeat(s.wantedStars) + '☆'.repeat(5 - s.wantedStars);
+
+        const stamRatio = Math.max(0, Math.min(1, s.player.stamina / s.stats.maxStamina));
+        ui.staminaPct.textContent = `${Math.round(stamRatio * 100)}%`;
+        ui.staminaBar.style.width = `${stamRatio * 100}%`;
+        if (stamRatio < 0.25) {
+          ui.staminaBar.className = 'h-full bg-gradient-to-r from-red-600 to-rose-400 transition-all duration-75';
+        } else if (stamRatio < 0.55) {
+          ui.staminaBar.className = 'h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-75';
+        } else {
+          ui.staminaBar.className = 'h-full bg-gradient-to-r from-emerald-500 to-lime-400 transition-all duration-75';
+        }
+
+        if (s.mode === 'thief') {
+          const d = Math.max(0, gapMeters);
+          ui.radarTitle.textContent = '🚨 পুলিশ রাডার';
+          ui.radarDistText.textContent = `${d.toFixed(1)}m পেছনে`;
+          ui.radarDistText.className = `num-font text-sm font-bold ${d < 10 ? 'text-rose-400' : 'text-amber-300'}`;
+          const pct = Math.max(6, Math.min(96, (d / 45) * 100));
+          ui.radarFill.style.width = `${pct}%`;
+        } else {
+          const d = Math.max(0, -gapMeters);
+          ui.radarTitle.textContent = '🎯 চোর ট্র্যাকার';
+          ui.radarDistText.textContent = `${d.toFixed(1)}m সামনে`;
+          ui.radarDistText.className = `num-font text-sm font-bold ${d > 52 ? 'text-rose-400' : 'text-cyan-300'}`;
+          const pct = Math.max(6, Math.min(96, (1 - d / 72) * 100));
+          ui.radarFill.style.width = `${pct}%`;
+        }
+      }
+
+      // =========================================================================
+      // 8. CANVAS RENDERING ENGINE (Parallax Sky, Hills, 3-Path Traps, Jointed Humans)
+      // =========================================================================
+      function renderScene() {
+        ctx.clearRect(0, 0, viewW, viewH);
+
+        // Background decorative idle preview if game not created yet
+        const s = game;
+        const stars = s ? s.wantedStars : 1;
+        const camX = s ? s.camera.x : performance.now() * 0.05;
+        const camY = s ? s.camera.y : 250;
+        const zoom = s ? s.camera.zoom : 0.9;
+
+        // 1. Dynamic Sky Gradient (Shifts atmosphere with Wanted Stars!)
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, viewH);
+        if (stars <= 2) {
+          skyGrad.addColorStop(0, '#0f172a');
+          skyGrad.addColorStop(0.55, '#1e3a5f');
+          skyGrad.addColorStop(1, '#3b5998');
+        } else if (stars <= 4) {
+          skyGrad.addColorStop(0, '#1a1025');
+          skyGrad.addColorStop(0.55, '#4c1d3d');
+          skyGrad.addColorStop(1, '#9a3412');
+        } else {
+          skyGrad.addColorStop(0, '#090714');
+          skyGrad.addColorStop(0.55, '#3b0764');
+          skyGrad.addColorStop(1, '#7f1d1d');
+        }
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, viewW, viewH);
+
+        // Sun / Moon Glow
+        ctx.save();
+        const orbX = viewW * 0.78;
+        const orbY = viewH * 0.2;
+        const orbGrad = ctx.createRadialGradient(orbX, orbY, 8, orbX, orbY, 95);
+        orbGrad.addColorStop(0, stars >= 3 ? 'rgba(251, 146, 60, 0.9)' : 'rgba(253, 224, 71, 0.85)');
+        orbGrad.addColorStop(1, 'rgba(251, 146, 60, 0)');
+        ctx.fillStyle = orbGrad;
+        ctx.beginPath();
+        ctx.arc(orbX, orbY, 95, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 2. Multi-Layer Parallax Mountains & Pine Ridges
+        drawParallaxLayer(camX * 0.14, viewH * 0.66, 130, 0.0024, 'rgba(15, 23, 42, 0.55)');
+        drawParallaxLayer(camX * 0.30, viewH * 0.75, 95, 0.0046, 'rgba(15, 23, 42, 0.78)');
+
+        if (!s) return;
+
+        // Apply World Camera Transform
+        ctx.save();
+        const shakeX = s.camera.shake > 0 ? (Math.random() - 0.5) * s.camera.shake : 0;
+        const shakeY = s.camera.shake > 0 ? (Math.random() - 0.5) * s.camera.shake : 0;
+        ctx.translate(viewW * 0.5 + shakeX, viewH * 0.54 + shakeY);
+        ctx.scale(zoom, zoom);
+        ctx.translate(-camX, -camY);
+
+        const halfSpanX = (viewW / zoom) * 0.62 + 240;
+        const leftX = camX - halfSpanX;
+        const rightX = camX + halfSpanX;
+
+        // 3. Draw Helicopter Volumetric Searchlight (behind/over terrain)
+        if (s.helicopter.active) {
+          drawHelicopterBeam(s);
+        }
+
+        // 4. Draw Main Hill-Climb Terrain + Mile Markers
+        drawMainTerrain(s, leftX, rightX);
+
+        // 5. Draw 3-Path Junction Bridges, Tunnels, Clues & Deadly Traps!
+        for (let i = 0; i < s.junctions.length; i++) {
+          const j = s.junctions[i];
+          if (j.mergeX < leftX - 200 || j.splitX - s.stats.clueLeadPx > rightX + 200) continue;
+          drawJunctionSystem(s, j);
+        }
+
+        // 5b. Draw Vaultable Road Obstacles (Police Barricades & Hazard Barrels)
+        drawObstacles(s, leftX, rightX);
+
+        // 6. Draw Pickups (Coins, Energy Drinks, Gadget Crates)
+        drawPickups(s, leftX, rightX);
+
+        // 7. Draw Thrown Gadgets
+        drawDroppedTraps(s);
+
+        // 8. Draw AI Chaser/Runner + Red/Blue Police Siren Glow
+        drawSirenGroundAura(s.mode === 'thief' ? s.ai : s.player, s.time);
+        drawArticulatedHuman(
+          s.ai.x,
+          s.ai.y,
+          s.ai.angle,
+          s.ai.animPhase,
+          s.mode === 'thief' ? 'police' : 'thief',
+          false,
+          0,
+          s.ai.stunTimer > 0
+        );
+
+        // 9. Draw Player (or Ragdoll Crash Bones if wiped out!)
+        if (s.player.stumbled && s.player.ragdollParts.length > 0) {
+          drawRagdollParts(s.player.ragdollParts);
+        } else {
+          // Adrenaline golden speed trail
+          if (s.player.adrenalineTimer > 0) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
+            ctx.lineWidth = 4;
+            for (let k = 0; k < 3; k++) {
+              ctx.beginPath();
+              ctx.moveTo(s.player.x - 16, s.player.y - 18 - k * 14);
+              ctx.lineTo(s.player.x - 75 - k * 18, s.player.y - 16 - k * 14);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
+          drawArticulatedHuman(
+            s.player.x,
+            s.player.y,
+            s.player.angle,
+            s.player.animPhase,
+            s.mode === 'thief' ? 'thief' : 'police',
+            s.player.jetpackTimer > 0,
+            s.player.stamina / s.stats.maxStamina,
+            false
+          );
+        }
+
+        // 10. Draw Police Helicopter Overhead (Wanted 3★+)
+        if (s.helicopter.active) {
+          drawHelicopterBody(s);
+        }
+
+        // 11. Draw Particles & Floating Stunt/Bonus Popups
+        drawParticlesAndPopups(s);
+
+        ctx.restore();
+      }
+
+      function drawParallaxLayer(scrollX, baseScreenY, amp, freq, fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.beginPath();
+        ctx.moveTo(0, viewH);
+        for (let sx = 0; sx <= viewW + 40; sx += 36) {
+          const wx = sx + scrollX;
+          const h = Math.sin(wx * freq) * amp * 0.65 + Math.cos(wx * freq * 2.3 + 1.4) * amp * 0.35;
+          ctx.lineTo(sx, baseScreenY - Math.abs(h));
+        }
+        ctx.lineTo(viewW, viewH);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function drawMainTerrain(s, leftX, rightX) {
+        const step = 16;
+        const startX = Math.floor(leftX / step) * step;
+        const deepBottom = s.camera.y + 900;
+
+        // Soil body fill
+        ctx.fillStyle = '#291d18';
+        ctx.beginPath();
+        ctx.moveTo(startX, deepBottom);
+        for (let x = startX; x <= rightX + step; x += step) {
+          ctx.lineTo(x, getBaseGroundY(s, x));
+        }
+        ctx.lineTo(rightX + step, deepBottom);
+        ctx.closePath();
+        ctx.fill();
+
+        // Sub-surface rock stripe
+        ctx.strokeStyle = '#3f2e26';
+        ctx.lineWidth = 14;
+        ctx.beginPath();
+        for (let x = startX; x <= rightX + step; x += step) {
+          const y = getBaseGroundY(s, x) + 14;
+          if (x === startX) ctx.moveTo(startX, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Top vibrant hill grass / asphalt crust
+        ctx.strokeStyle = '#22c55e';
+        ctx.lineWidth = 8;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let x = startX; x <= rightX + step; x += step) {
+          const y = getBaseGroundY(s, x);
+          if (x === startX) ctx.moveTo(startX, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Distance Signposts every 100m
+        const firstMeter = Math.max(100, Math.floor(((startX - s.startX) / PX_PER_METER) / 100) * 100);
+        const lastMeter = Math.ceil(((rightX - s.startX) / PX_PER_METER) / 100) * 100;
+        for (let m = firstMeter; m <= lastMeter; m += 100) {
+          const mx = s.startX + m * PX_PER_METER;
+          if (findJunctionAt(s, mx, 80, 80)) continue;
+          const my = getBaseGroundY(s, mx);
+          ctx.fillStyle = '#64748b';
+          ctx.fillRect(mx - 2, my - 42, 4, 42);
+          ctx.fillStyle = '#0f172a';
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 2;
+          ctx.fillRect(mx - 24, my - 62, 48, 22);
+          ctx.strokeRect(mx - 24, my - 62, 48, 22);
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = 'bold 12px Rajdhani, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(`${m}m`, mx, my - 47);
+        }
+      }
+
+      // Renders the 3-Path Branching Structure, Pre-Junction Visual Clues & Deadly Traps!
+      function drawJunctionSystem(s, j) {
+        const laneLabels = ['▲ UP BRIDGE', '● MID TUNNEL', '▼ VALLEY'];
+        const clueVisible = s.player.x >= j.splitX - s.stats.clueLeadPx;
+
+        // 1. Pre-Junction Warning Gantry Signpost before split
+        const signX = j.splitX - 240;
+        const signY = getBaseGroundY(s, signX);
+        ctx.save();
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(signX - 4, signY - 125, 8, 125);
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 3;
+        ctx.fillRect(signX - 78, signY - 168, 156, 46);
+        ctx.strokeRect(signX - 78, signY - 168, 156, 46);
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 13px "Hind Siliguri", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠️ ৩-রাস্তার মোড়!', signX, signY - 149);
+        ctx.fillStyle = '#fca5a5';
+        ctx.font = 'bold 11px "Hind Siliguri", sans-serif';
+        ctx.fillText('২টি ফাঁদ • ১টি নিরাপদ', signX, signY - 131);
+        ctx.restore();
+
+        // 2. Render all 3 Stacked Physical Tracks (0 = UP, 1 = MID, 2 = DOWN)
+        for (let lane = 0; lane < 3; lane++) {
+          const info = j.lanes[lane];
+          const isSelected = s.selectedLane === lane;
+
+          // Draw track deck curve from splitX to mergeX
+          ctx.save();
+          ctx.lineWidth = isSelected ? 12 : 9;
+          ctx.strokeStyle = isSelected ? '#38bdf8' : '#64748b';
+          ctx.beginPath();
+          for (let x = j.splitX; x <= j.mergeX; x += 22) {
+            const y = getSurfaceY(s, x, lane);
+            if (x === j.splitX) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+
+          // Support pillars under Upper Bridge (lane 0) & Tunnel roof on Mid (lane 1)
+          const midCorridorY = j.anchorY + (lane - 1) * LANE_OFFSET_Y;
+          if (lane === 0) {
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+            ctx.lineWidth = 4;
+            for (let px = j.splitX + 260; px <= j.mergeX - 260; px += 150) {
+              ctx.beginPath();
+              ctx.moveTo(px, midCorridorY);
+              ctx.lineTo(px, j.anchorY);
+              ctx.stroke();
+            }
+          } else if (lane === 1) {
+            // Subtle tunnel arch backdrop
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+            ctx.fillRect(j.splitX + 260, midCorridorY - 78, (j.mergeX - j.splitX) - 520, 78);
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(j.splitX + 260, midCorridorY - 78, (j.mergeX - j.splitX) - 520, 78);
+          }
+
+          // Lane Label Badge at Entrance (`splitX + 70`)
+          const entX = j.splitX + 85;
+          const entY = j.anchorY + (lane - 1) * LANE_OFFSET_Y * 0.72 - 26;
+          ctx.fillStyle = isSelected ? 'rgba(14, 165, 233, 0.9)' : 'rgba(15, 23, 42, 0.85)';
+          ctx.strokeStyle = isSelected ? '#fde047' : '#64748b';
+          ctx.lineWidth = 2;
+          ctx.fillRect(entX - 52, entY - 15, 104, 22);
+          ctx.strokeRect(entX - 52, entY - 15, 104, 22);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 11px Rajdhani, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(laneLabels[lane], entX, entY);
+
+          // 3. SPLIT-SECOND VISUAL CLUES AT ENTRANCE FOR THE 2 DEADLY LANES!
+          if (!info.safe && clueVisible) {
+            drawSubtleEntranceClue(s, info.trap.id, j.splitX + 195, midCorridorY);
+          }
+
+          // 4. MYSTERY MIST SHROUD UNTIL COMMITTED -> THEN REVEAL SAFE OR DEADLY TRAP!
+          const revealProgress = Math.max(0, Math.min(1, (s.player.x - (j.splitX + 85)) / 145));
+          if (revealProgress > 0.02) {
+            ctx.save();
+            ctx.globalAlpha = revealProgress;
+            if (!info.safe) {
+              drawDeadlyTrapCorridor(s, info.trap.id, j.splitX + 335, j.mergeX - 305, midCorridorY);
+            } else {
+              // Subtle green safe-haven glow inside corridor once revealed
+              ctx.strokeStyle = 'rgba(74, 222, 128, 0.78)';
+              ctx.lineWidth = 5;
+              ctx.beginPath();
+              ctx.moveTo(j.splitX + 300, midCorridorY - 4);
+              ctx.lineTo(j.mergeX - 300, midCorridorY - 4);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
+          if (revealProgress < 0.98) {
+            // Shrouded Mystery Tunnel/Fog Curtain before player enters split so ONLY clues give away traps!
+            const veilX = j.splitX + 275;
+            const veilW = (j.mergeX - j.splitX) - 550;
+            ctx.save();
+            ctx.globalAlpha = 1 - revealProgress;
+            ctx.fillStyle = 'rgba(9, 13, 22, 0.92)';
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.45)';
+            ctx.lineWidth = 2;
+            ctx.fillRect(veilX, midCorridorY - 76, veilW, 84);
+            ctx.strokeRect(veilX, midCorridorY - 76, veilW, 84);
+            ctx.fillStyle = 'rgba(203, 213, 225, 0.55)';
+            ctx.font = 'bold 20px Rajdhani, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('? ? ?', veilX + veilW * 0.5, midCorridorY - 30);
+            ctx.restore();
+          }
+
+          ctx.restore();
+        }
+      }
+
+      // Draws subtle telltale visual clues at the mouth of deadly paths 2-3 seconds before reaching the split!
+      function drawSubtleEntranceClue(s, trapId, mouthX, mouthY) {
+        const t = s.time;
+        const vLvl = s.stats.visionLevel; // Higher Vision upgrade = stronger/clearer clue!
+        const alphaBoost = Math.min(1, 0.58 + (vLvl - 1) * 0.08);
+
+        ctx.save();
+        // Crooked small danger sign on post at mouth
+        const wobble = Math.sin(t * 14 + mouthY) * 0.12;
+        ctx.translate(mouthX, mouthY - 24);
+        ctx.rotate(wobble);
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.42 + (vLvl - 1) * 0.07})`;
+        ctx.beginPath();
+        ctx.moveTo(0, -14);
+        ctx.lineTo(13, 9);
+        ctx.lineTo(-13, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('!', 0, 7);
+        ctx.restore();
+
+        // Specific physical telltale clues drifting out of the deadly lane mouth:
+        ctx.save();
+        if (trapId === 'fire') {
+          // Rising dark smoke puffs + faint orange ember flicker!
+          for (let k = 0; k < 4; k++) {
+            const prog = (t * 0.9 + k * 0.25) % 1;
+            ctx.fillStyle = `rgba(120, 113, 108, ${(1 - prog) * alphaBoost * 0.7})`;
+            ctx.beginPath();
+            ctx.arc(mouthX - 25 + Math.sin(t * 4 + k) * 10, mouthY - 12 - prog * 58, 7 + prog * 11, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = `rgba(249, 115, 22, ${0.35 * alphaBoost})`;
+          ctx.fillRect(mouthX - 45, mouthY - 10, 70, 8);
+        } else if (trapId === 'pit') {
+          // Shaking cracks & falling wooden splinters underneath!
+          for (let k = 0; k < 3; k++) {
+            const prog = (t * 1.3 + k * 0.33) % 1;
+            ctx.fillStyle = `rgba(180, 130, 90, ${(1 - prog) * alphaBoost})`;
+            ctx.fillRect(mouthX - 20 + k * 18, mouthY + prog * 42, 5, 5);
+          }
+        } else if (trapId === 'spikes') {
+          // Cold metallic glint flashes along floor!
+          const flash = Math.abs(Math.sin(t * 7));
+          ctx.strokeStyle = `rgba(248, 250, 252, ${flash * alphaBoost})`;
+          ctx.lineWidth = 2.5;
+          for (let k = 0; k < 3; k++) {
+            const gx = mouthX - 22 + k * 20;
+            ctx.beginPath();
+            ctx.moveTo(gx - 6, mouthY - 10);
+            ctx.lineTo(gx + 6, mouthY - 10);
+            ctx.moveTo(gx, mouthY - 16);
+            ctx.lineTo(gx, mouthY - 4);
+            ctx.stroke();
+          }
+        } else if (trapId === 'rocks') {
+          // Bouncing pebbles dropping from ceiling!
+          for (let k = 0; k < 3; k++) {
+            const prog = (t * 1.5 + k * 0.31) % 1;
+            ctx.fillStyle = `rgba(168, 162, 158, ${alphaBoost})`;
+            ctx.beginPath();
+            ctx.arc(mouthX - 18 + k * 19, mouthY - 65 + prog * 62, 4.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (trapId === 'dogs') {
+          // Glowing red guard-dog eyes & sonic bark rings!
+          ctx.fillStyle = `rgba(239, 68, 68, ${alphaBoost})`;
+          ctx.beginPath();
+          ctx.arc(mouthX + 18, mouthY - 18, 3, 0, Math.PI * 2);
+          ctx.arc(mouthX + 26, mouthY - 18, 3, 0, Math.PI * 2);
+          ctx.fill();
+          const pulse = (t * 1.8) % 1;
+          ctx.strokeStyle = `rgba(250, 204, 21, ${(1 - pulse) * alphaBoost})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(mouthX + 12, mouthY - 18, 8 + pulse * 26, Math.PI * 0.7, Math.PI * 1.3);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Draws the actual lethal hazard inside each of the 2 deadly routes!
+      function drawDeadlyTrapCorridor(s, trapId, x1, x2, y) {
+        const w = x2 - x1;
+        const t = s.time;
+        ctx.save();
+
+        if (trapId === 'fire') {
+          // Roaring Fire / Lava Pit
+          ctx.fillStyle = '#7c2d12';
+          ctx.fillRect(x1, y - 6, w, 24);
+          for (let fx = x1 + 10; fx < x2 - 10; fx += 22) {
+            const fh = 24 + Math.sin(t * 13 + fx * 0.1) * 12;
+            ctx.fillStyle = (fx % 44 < 22) ? '#f97316' : '#facc15';
+            ctx.beginPath();
+            ctx.moveTo(fx - 12, y + 4);
+            ctx.lineTo(fx, y - fh);
+            ctx.lineTo(fx + 12, y + 4);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } else if (trapId === 'pit') {
+          // Broken Collapsed Bridge Gap
+          ctx.fillStyle = '#090d16';
+          ctx.fillRect(x1, y - 8, w, 92);
+          // Snapped jagged bridge ends
+          ctx.strokeStyle = '#92400e';
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          ctx.moveTo(x1 - 15, y);
+          ctx.lineTo(x1 + 26, y + 24);
+          ctx.moveTo(x2 + 15, y);
+          ctx.lineTo(x2 - 26, y + 22);
+          ctx.stroke();
+        } else if (trapId === 'spikes') {
+          // Gleaming Steel Spike Bed
+          ctx.fillStyle = '#cbd5e1';
+          for (let sx = x1 + 8; sx < x2 - 8; sx += 18) {
+            ctx.beginPath();
+            ctx.moveTo(sx - 8, y + 2);
+            ctx.lineTo(sx, y - 28);
+            ctx.lineTo(sx + 8, y + 2);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.fillStyle = '#ef4444';
+          ctx.fillRect(x1, y - 2, w, 5);
+        } else if (trapId === 'rocks') {
+          // Crushing Falling Boulders Landslide
+          for (let rx = x1 + 28; rx < x2 - 20; rx += 58) {
+            const drop = ((t * 155 + rx * 1.7) % 85);
+            ctx.fillStyle = '#78716c';
+            ctx.beginPath();
+            ctx.arc(rx, y - 82 + drop, 19, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#57534e';
+            ctx.beginPath();
+            ctx.arc(rx + 12, y - 14, 17, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (trapId === 'dogs') {
+          // Snarling Guard Dogs Pack
+          for (let dx = x1 + 45; dx < x2 - 35; dx += 85) {
+            const hop = Math.abs(Math.sin(t * 9 + dx)) * 14;
+            const by = y - hop;
+            ctx.fillStyle = '#451a03';
+            ctx.fillRect(dx - 16, by - 22, 30, 14); // body
+            ctx.fillRect(dx - 24, by - 30, 14, 13); // head
+            ctx.fillStyle = '#ef4444';
+            ctx.fillRect(dx - 22, by - 27, 4, 4); // red eye
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(dx - 24, by - 19, 8, 3); // fangs
+          }
+        }
+
+        ctx.restore();
+      }
+
+      function drawObstacles(s, leftX, rightX) {
+        for (let i = 0; i < s.obstacles.length; i++) {
+          const ob = s.obstacles[i];
+          if (ob.smashed || ob.x < leftX || ob.x > rightX) continue;
+          const y = getSurfaceY(s, ob.x, 1);
+          const slope = getSurfaceSlope(s, ob.x, 1);
+
+          ctx.save();
+          ctx.translate(ob.x, y);
+          ctx.rotate(slope);
+          if (ob.kind === 'barricade') {
+            // Police Roadblock Striped Sawhorse Barricade
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(-16, -34, 4, 34);
+            ctx.fillRect(12, -34, 4, 34);
+            ctx.fillStyle = '#f97316';
+            ctx.strokeStyle = '#fef08a';
+            ctx.lineWidth = 2;
+            ctx.fillRect(-20, -34, 40, 14);
+            ctx.strokeRect(-20, -34, 40, 14);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(-12, -33, 6, 12);
+            ctx.fillRect(4, -33, 6, 12);
+          } else {
+            // Hazard Steel Drum / Barrel
+            ctx.fillStyle = '#dc2626';
+            ctx.strokeStyle = '#fca5a5';
+            ctx.lineWidth = 2;
+            ctx.fillRect(-12, -32, 24, 32);
+            ctx.strokeRect(-12, -32, 24, 32);
+            ctx.fillStyle = '#facc15';
+            ctx.fillRect(-12, -21, 24, 7);
+          }
+          ctx.restore();
+        }
+      }
+
+      function drawPickups(s, leftX, rightX) {
+        for (let i = 0; i < s.pickups.length; i++) {
+          const item = s.pickups[i];
+          if (item.collected || item.x < leftX || item.x > rightX) continue;
+          let itemAlpha = 1;
+          if (item.juncSplitX !== undefined) {
+            itemAlpha = Math.max(0, Math.min(1, (s.player.x - (item.juncSplitX + 85)) / 145));
+            if (itemAlpha <= 0.02) continue;
+          }
+          const bob = Math.sin(s.time * 4.5 + item.x * 0.03) * 4;
+          const y = getSurfaceY(s, item.x, item.lane) + item.offsetY + bob;
+
+          ctx.save();
+          ctx.globalAlpha = itemAlpha;
+          ctx.translate(item.x, y);
+          if (item.type === 'coin') {
+            const spinW = Math.max(0.28, Math.abs(Math.cos(s.time * 5 + item.x * 0.02)));
+            ctx.scale(spinW, 1);
+            ctx.fillStyle = '#facc15';
+            ctx.beginPath();
+            ctx.arc(0, 0, 11, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ca8a04';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+            ctx.fillStyle = '#fef08a';
+            ctx.fillRect(-2, -5, 4, 10);
+          } else if (item.type === 'energy') {
+            // Glowing Energy Drink Can!
+            ctx.fillStyle = 'rgba(74, 222, 128, 0.25)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 19, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#10b981';
+            ctx.strokeStyle = '#ecfdf5';
+            ctx.lineWidth = 2;
+            ctx.fillRect(-9, -13, 18, 26);
+            ctx.strokeRect(-9, -13, 18, 26);
+            ctx.fillStyle = '#fde047';
+            ctx.font = 'bold 13px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡', 0, 5);
+          } else {
+            // Gadget Power-up Crate
+            const isJet = item.type === 'jetBox';
+            ctx.fillStyle = isJet ? '#0284c7' : '#d97706';
+            ctx.strokeStyle = '#fef08a';
+            ctx.lineWidth = 2;
+            ctx.fillRect(-13, -13, 26, 26);
+            ctx.strokeRect(-13, -13, 26, 26);
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(isJet ? '🚀' : '🍌', 0, 5);
+          }
+          ctx.restore();
+        }
+      }
+
+      function drawDroppedTraps(s) {
+        for (let i = 0; i < s.droppedTraps.length; i++) {
+          const t = s.droppedTraps[i];
+          ctx.save();
+          ctx.translate(t.x, t.y);
+          if (t.kind === 'banana') {
+            ctx.fillStyle = '#facc15';
+            ctx.strokeStyle = '#854d0e';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, -6, 11, 0.2, Math.PI - 0.2);
+            ctx.fill();
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = '#475569';
+            ctx.beginPath();
+            ctx.arc(0, -8, 9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(226, 232, 240, 0.45)';
+            ctx.beginPath();
+            ctx.arc(0, -14, 16 + Math.sin(s.time * 12) * 4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      }
+
+      function drawSirenGroundAura(policeEntity, time) {
+        ctx.save();
+        const isRed = Math.sin(time * 16) > 0;
+        const grad = ctx.createRadialGradient(
+          policeEntity.x, policeEntity.y - 38, 4,
+          policeEntity.x, policeEntity.y - 38, 92
+        );
+        grad.addColorStop(0, isRed ? 'rgba(239, 68, 68, 0.48)' : 'rgba(59, 130, 246, 0.48)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(policeEntity.x, policeEntity.y - 38, 92, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Smooth Procedural Jointed Running Human Renderer (Thief with Bandit Mask & Loot Sack / Police with Cap & Badge!)
+      function drawArticulatedHuman(x, y, bodyAngle, phase, role, hasJetpack, staminaRatio, stunned) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(bodyAngle);
+
+        const isPolice = role === 'police';
+        const stride = Math.sin(phase);
+        const oppStride = Math.sin(phase + Math.PI);
+
+        // Jetpack Backpack when active
+        if (hasJetpack) {
+          ctx.fillStyle = '#0284c7';
+          ctx.strokeStyle = '#e0f2fe';
+          ctx.lineWidth = 2;
+          ctx.fillRect(-17, -46, 10, 22);
+          ctx.strokeRect(-17, -46, 10, 22);
+        } else if (!isPolice) {
+          // Thief's swinging loot bag on back!
+          ctx.save();
+          ctx.translate(-9, -38);
+          ctx.rotate(-0.25 + Math.sin(phase * 2) * 0.14);
+          ctx.fillStyle = '#d97706';
+          ctx.beginPath();
+          ctx.ellipse(-5, 6, 10, 12, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fde047';
+          ctx.font = 'bold 10px sans-serif';
+          ctx.fillText('$', -8, 10);
+          ctx.restore();
+        }
+
+        // Back Leg (Thigh + Shin)
+        drawLimbChain(-1, -24, stride * 0.72, Math.max(0.1, oppStride * 0.85), 13, 13, isPolice ? '#1e3a8a' : '#334155', '#0f172a');
+
+        // Back Arm
+        drawArmChain(0, -45, oppStride * 0.75, -0.75, 11, 10, isPolice ? '#2563eb' : '#e2e8f0');
+
+        // Torso
+        ctx.save();
+        ctx.translate(0, -24);
+        ctx.rotate(0.16); // Athletic forward runner lean
+        if (isPolice) {
+          // Police Blue Uniform + Gold Badge
+          ctx.fillStyle = '#1d4ed8';
+          ctx.fillRect(-7, -24, 14, 24);
+          ctx.fillStyle = '#0f172a'; // utility belt
+          ctx.fillRect(-7.5, -5, 15, 4);
+          ctx.fillStyle = '#facc15'; // gold badge
+          ctx.beginPath();
+          ctx.arc(4, -17, 3, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Thief Classic Striped Top!
+          ctx.fillStyle = '#f8fafc';
+          ctx.fillRect(-7, -24, 14, 24);
+          ctx.fillStyle = '#0f172a';
+          for (let sy = -22; sy < -2; sy += 6) {
+            ctx.fillRect(-7, sy, 14, 3);
+          }
+        }
+
+        // Head
+        ctx.translate(1, -31);
+        ctx.fillStyle = '#fed7aa'; // skin
+        ctx.beginPath();
+        ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (isPolice) {
+          // Police Peaked Officer Cap!
+          ctx.fillStyle = '#1e3a8a';
+          ctx.beginPath();
+          ctx.moveTo(-9, -3);
+          ctx.lineTo(8, -3);
+          ctx.lineTo(5, -12);
+          ctx.lineTo(-8, -10);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#0f172a'; // visor
+          ctx.fillRect(2, -4, 10, 3);
+          ctx.fillStyle = '#facc15';
+          ctx.fillRect(1, -9, 3, 3);
+        } else {
+          // Thief Black Domino Bandit Mask + Red Bandana tail!
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(-8, -4, 16, 5);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(3, -3, 3.5, 2.5); // determined eye
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(-7, -2);
+          ctx.lineTo(-16, 1 + Math.sin(phase * 2) * 3);
+          ctx.stroke();
+        }
+
+        // Stun stars over head if hit by gadget!
+        if (stunned) {
+          ctx.fillStyle = '#fde047';
+          ctx.font = 'bold 13px sans-serif';
+          ctx.fillText('💫', -6, -15);
+        } else if (staminaRatio > 0 && staminaRatio < 0.28) {
+          // Sweat droplets when stamina low!
+          ctx.fillStyle = '#38bdf8';
+          ctx.beginPath();
+          ctx.arc(-6, -13 - (phase % 1) * 4, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // Front Leg (Thigh + Shin + Shoe)
+        drawLimbChain(1, -24, oppStride * 0.72, Math.max(0.1, stride * 0.85), 13, 13, isPolice ? '#2563eb' : '#475569', '#ef4444');
+
+        // Front Arm
+        drawArmChain(1, -45, stride * 0.78, -0.82, 11, 10, isPolice ? '#3b82f6' : '#f8fafc');
+
+        ctx.restore();
+      }
+
+      function drawLimbChain(ox, oy, hipAng, kneeBend, l1, l2, pantsColor, shoeColor) {
+        ctx.save();
+        ctx.translate(ox, oy);
+        ctx.rotate(hipAng);
+        ctx.strokeStyle = pantsColor;
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, l1);
+        ctx.stroke();
+
+        ctx.translate(0, l1);
+        ctx.rotate(kneeBend);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, l2);
+        ctx.stroke();
+
+        // Sneaker / Boot
+        ctx.fillStyle = shoeColor;
+        ctx.fillRect(-3, l2 - 2, 10, 5);
+        ctx.restore();
+      }
+
+      function drawArmChain(ox, oy, shoulderAng, elbowAng, l1, l2, sleeveColor) {
+        ctx.save();
+        ctx.translate(ox, oy);
+        ctx.rotate(shoulderAng);
+        ctx.strokeStyle = sleeveColor;
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, l1);
+        ctx.stroke();
+
+        ctx.translate(0, l1);
+        ctx.rotate(elbowAng);
+        ctx.strokeStyle = '#fed7aa';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, l2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawRagdollParts(parts) {
+        for (let i = 0; i < parts.length; i++) {
+          const b = parts[i];
+          ctx.save();
+          ctx.translate(b.x, b.y);
+          ctx.rotate(b.rot);
+          ctx.fillStyle = b.color;
+          if (b.isHead) {
+            ctx.beginPath();
+            ctx.arc(0, 0, 9, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillRect(-b.len * 0.5, -4, b.len, 8);
+          }
+          ctx.restore();
+        }
+      }
+
+      function drawHelicopterBeam(s) {
+        const h = s.helicopter;
+        const sweepX = h.x + Math.sin(h.beamPhase) * 155;
+        const targetY = getSurfaceY(s, sweepX, s.player.activeLane);
+        ctx.save();
+        const beamGrad = ctx.createLinearGradient(h.x, h.y + 15, sweepX, targetY);
+        beamGrad.addColorStop(0, 'rgba(254, 249, 195, 0.36)');
+        beamGrad.addColorStop(1, 'rgba(254, 249, 195, 0.04)');
+        ctx.fillStyle = beamGrad;
+        ctx.beginPath();
+        ctx.moveTo(h.x - 8, h.y + 14);
+        ctx.lineTo(h.x + 8, h.y + 14);
+        ctx.lineTo(sweepX + 68, targetY + 12);
+        ctx.lineTo(sweepX - 68, targetY + 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawHelicopterBody(s) {
+        const h = s.helicopter;
+        ctx.save();
+        ctx.translate(h.x, h.y);
+        ctx.rotate(0.1);
+        // Tail boom
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(-18, 0);
+        ctx.lineTo(-54, -8);
+        ctx.stroke();
+        // Cabin body
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 26, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Spinning Top Rotor Blade
+        const bladeW = 54 * Math.sin(s.time * 32);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-bladeW, -18);
+        ctx.lineTo(bladeW, -18);
+        ctx.stroke();
+        // Siren dot under chopper
+        ctx.fillStyle = Math.sin(s.time * 18) > 0 ? '#ef4444' : '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(8, 14, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawParticlesAndPopups(s) {
+        for (let i = 0; i < s.particles.length; i++) {
+          const pt = s.particles[i];
+          ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+          ctx.fillStyle = pt.color;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        for (let i = 0; i < s.popups.length; i++) {
+          const pop = s.popups[i];
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, (pop.life / pop.maxLife) * 1.4));
+          ctx.translate(pop.x, pop.y);
+          ctx.scale(pop.scale, pop.scale);
+          ctx.font = 'bold 16px "Hind Siliguri", Rajdhani, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.strokeStyle = 'rgba(9, 13, 22, 0.9)';
+          ctx.lineWidth = 4;
+          ctx.strokeText(pop.text, 0, 0);
+          ctx.fillStyle = pop.color;
+          ctx.fillText(pop.text, 0, 0);
+          ctx.restore();
+        }
+      }
+
+      // =========================================================================
+      // 9. UI INTERACTIONS, UPGRADE SHOP & CONTROLS BINDING
+      // =========================================================================
+      function setLaneSelection(lane) {
+        const clamped = Math.max(0, Math.min(2, lane));
+        if (game) {
+          game.selectedLane = clamped;
+        }
+        const btns = [ui.btnLaneUp, ui.btnLaneMid, ui.btnLaneDown];
+        btns.forEach((b, idx) => {
+          if (idx === clamped) {
+            b.className = 'lane-btn ctrl-btn w-20 sm:w-24 py-1.5 rounded-xl text-xs font-bold border-2 border-emerald-400 bg-emerald-500/45 text-white flex items-center justify-center gap-1 cursor-pointer';
+          } else {
+            b.className = 'lane-btn ctrl-btn w-20 sm:w-24 py-1.5 rounded-xl text-xs font-bold border border-slate-600 bg-slate-800/80 text-slate-200 flex items-center justify-center gap-1 cursor-pointer';
+          }
+        });
+      }
+
+      function syncHudButtons() {
+        if (!game) return;
+        ui.hudTrapCount.textContent = String(game.player.trapsLeft);
+        ui.hudJetCount.textContent = String(game.player.jetpacksLeft);
+        ui.trapBtnLabel.textContent = game.mode === 'thief' ? 'স্মোক/কলা [Q]' : 'স্টান বোম্ব [Q]';
+        ui.radarChaserIcon.textContent = game.mode === 'thief' ? '👮' : '🦹‍♂️';
+        ui.radarRunnerIcon.textContent = game.mode === 'thief' ? '🦹‍♂️' : '👮';
+        ui.btnSoundHud.textContent = saveData.muted ? '🔇' : '🔊';
+      }
+
+      function renderUpgradeShop() {
+        ui.menuBankCoins.textContent = String(saveData.coins);
+        ui.menuBestDist.textContent = String(saveData.bestDist);
+
+        // Mode cards visual state
+        const isThief = saveData.mode === 'thief';
+        ui.modeThiefBtn.className = `mode-card cursor-pointer rounded-xl p-3 border-2 text-left transition ${
+          isThief ? 'border-emerald-400 bg-emerald-500/20 shadow-lg' : 'border-slate-700 bg-slate-900/70 hover:border-slate-500'
+        }`;
+        ui.modePoliceBtn.className = `mode-card cursor-pointer rounded-xl p-3 border-2 text-left transition ${
+          !isThief ? 'border-sky-400 bg-sky-500/20 shadow-lg' : 'border-slate-700 bg-slate-900/70 hover:border-slate-500'
+        }`;
+
+        ui.upgradeGrid.innerHTML = '';
+        UPGRADE_META.forEach(meta => {
+          const lvl = saveData.upgrades[meta.key] || 1;
+          const isMax = lvl >= MAX_UPGRADE_LVL;
+          const cost = getUpgradeCost(meta.key);
+          const canAfford = !isMax && saveData.coins >= cost;
+
+          const card = document.createElement('div');
+          card.className = 'bg-slate-900/85 border border-slate-700/80 rounded-xl p-3 flex flex-col justify-between gap-2';
+          card.innerHTML = `
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-sm text-white">${meta.icon} ${meta.title}</span>
+                <span class="num-font text-xs font-bold px-2 py-0.5 rounded-full bg-slate-800 text-cyan-300">Lv.${lvl}/${MAX_UPGRADE_LVL}</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-0.5">${meta.desc}</p>
+              <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2">
+                <div class="h-full bg-gradient-to-r from-amber-400 to-emerald-400" style="width:${(lvl / MAX_UPGRADE_LVL) * 100}%"></div>
+              </div>
+            </div>
+            <button data-upgrade="${meta.key}" class="mt-1 w-full py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+              isMax
+                ? 'bg-slate-800 text-emerald-400 cursor-default'
+                : canAfford
+                  ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+            }">
+              ${isMax ? '✓ সর্বোচ্চ লেভেল (MAX)' : `আপগ্রেড করুন • 🪙 ${cost}`}
+            </button>
+          `;
+          ui.upgradeGrid.appendChild(card);
+        });
+
+        ui.upgradeGrid.querySelectorAll('button[data-upgrade]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            AudioFX.init();
+            const key = btn.getAttribute('data-upgrade');
+            const lvl = saveData.upgrades[key] || 1;
+            if (lvl >= MAX_UPGRADE_LVL) return;
+            const cost = getUpgradeCost(key);
+            if (saveData.coins < cost) return;
+            saveData.coins -= cost;
+            saveData.upgrades[key] = lvl + 1;
+            persistSave();
+            AudioFX.stunt();
+            renderUpgradeShop();
+          });
+        });
+      }
+
+      function openMenuWithSummary(summary) {
+        ui.hud.classList.add('hidden');
+        ui.touchControls.classList.add('hidden');
+        ui.sirenOverlay.style.opacity = '0';
+        ui.menuModal.classList.remove('hidden');
+
+        if (summary && game) {
+          ui.gameOverBox.classList.remove('hidden');
+          ui.gameOverTitle.textContent = summary.titleBn;
+          ui.gameOverReason.textContent = summary.reasonBn;
+          ui.runDistStat.textContent = `${summary.distM}m`;
+          ui.runCoinStat.textContent = `+${game.coinsRun}`;
+          ui.runFlipStat.textContent = String(game.flipsRun);
+        }
+        renderUpgradeShop();
+      }
+
+      function startNewRun() {
+        AudioFX.init();
+        keys.sprint = false;
+        keys.brake = false;
+        keys.jumpQueued = false;
+        game = createNewGameState();
+        setLaneSelection(1);
+        syncHudButtons();
+        ui.menuModal.classList.add('hidden');
+        ui.hud.classList.remove('hidden');
+        ui.touchControls.classList.remove('hidden');
+      }
+
+      // Keyboard Controls
+      window.addEventListener('keydown', e => {
+        if (!ui.menuModal.classList.contains('hidden')) {
+          if (e.code === 'Enter' || e.code === 'Space') {
+            e.preventDefault();
+            startNewRun();
+          }
+          return;
+        }
+
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+          keys.sprint = true;
+          ui.btnSprint.classList.add('pressed');
+        } else if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+          keys.brake = true;
+          ui.btnBrake.classList.add('pressed');
+        } else if (e.code === 'Space') {
+          e.preventDefault();
+          keys.jumpQueued = true;
+          ui.btnJump.classList.add('pressed');
+        } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+          e.preventDefault();
+          if (game) setLaneSelection(game.selectedLane - 1);
+        } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+          e.preventDefault();
+          if (game) setLaneSelection(game.selectedLane + 1);
+        } else if (e.code === 'Digit1') {
+          setLaneSelection(0);
+        } else if (e.code === 'Digit2') {
+          setLaneSelection(1);
+        } else if (e.code === 'Digit3') {
+          setLaneSelection(2);
+        } else if (e.code === 'KeyQ' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+          useTrapGadget();
+        } else if (e.code === 'KeyE') {
+          useJetpackGadget();
+        }
+      });
+
+      window.addEventListener('keyup', e => {
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+          keys.sprint = false;
+          ui.btnSprint.classList.remove('pressed');
+        } else if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+          keys.brake = false;
+          ui.btnBrake.classList.remove('pressed');
+        } else if (e.code === 'Space') {
+          ui.btnJump.classList.remove('pressed');
+        }
+      });
+
+      // Multi-Touch / Pointer Hold Helper for Pedals
+      function bindHoldPedal(el, onState) {
+        const down = ev => {
+          ev.preventDefault();
+          AudioFX.init();
+          el.classList.add('pressed');
+          onState(true);
+        };
+        const up = ev => {
+          ev.preventDefault();
+          el.classList.remove('pressed');
+          onState(false);
+        };
+        el.addEventListener('pointerdown', down);
+        el.addEventListener('pointerup', up);
+        el.addEventListener('pointercancel', up);
+        el.addEventListener('pointerleave', up);
+      }
+
+      bindHoldPedal(ui.btnSprint, v => { keys.sprint = v; });
+      bindHoldPedal(ui.btnBrake, v => { keys.brake = v; });
+
+      ui.btnJump.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        AudioFX.init();
+        keys.jumpQueued = true;
+      });
+      ui.btnGadgetTrap.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        AudioFX.init();
+        useTrapGadget();
+      });
+      ui.btnGadgetJet.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        AudioFX.init();
+        useJetpackGadget();
+      });
+
+      [ui.btnLaneUp, ui.btnLaneMid, ui.btnLaneDown].forEach(btn => {
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          AudioFX.init();
+          setLaneSelection(Number(btn.getAttribute('data-lane')));
+        });
+      });
+
+      ui.btnSoundHud.addEventListener('click', () => {
+        AudioFX.init();
+        AudioFX.setMuted(!saveData.muted);
+        syncHudButtons();
+      });
+
+      ui.btnPauseMenu.addEventListener('click', () => {
+        if (game && !game.gameOver) {
+          // Bank any coins collected so far and return to Upgrade Shop cleanly!
+          saveData.coins += game.coinsRun;
+          const distM = Math.max(0, Math.floor((game.player.x - game.startX) / PX_PER_METER));
+          if (distM > saveData.bestDist) saveData.bestDist = distM;
+          persistSave();
+          game.running = false;
+          AudioFX.updateSiren(false, 0, 1, 0);
+          openMenuWithSummary({
+            titleBn: '⏸️ খেলা বিরতি ও শপ',
+            reasonBn: 'আপনার সংগৃহীত কয়েন ব্যাংকে জমা করা হয়েছে! আপগ্রেড করে আবার দৌড়ান।',
+            distM
+          });
+        }
+      });
+
+      ui.modeThiefBtn.addEventListener('click', () => {
+        saveData.mode = 'thief';
+        persistSave();
+        renderUpgradeShop();
+      });
+      ui.modePoliceBtn.addEventListener('click', () => {
+        saveData.mode = 'police';
+        persistSave();
+        renderUpgradeShop();
+      });
+      ui.btnStartGame.addEventListener('click', startNewRun);
+
+      ui.btnResetSave.addEventListener('click', () => {
+        saveData = JSON.parse(JSON.stringify(defaultSave));
+        persistSave();
+        renderUpgradeShop();
+      });
+
+      // Initialize Menu Preview State + Main 60FPS Game Loop
+      game = createNewGameState();
+      game.running = false;
+      renderUpgradeShop();
+
+      let lastFrameTime = performance.now();
+      function frameLoop(now) {
+        const dt = Math.min(0.033, Math.max(0.001, (now - lastFrameTime) / 1000));
+        lastFrameTime = now;
+        updateGame(dt);
+        renderScene();
+        requestAnimationFrame(frameLoop);
+      }
+      requestAnimationFrame(frameLoop);
+    })();
+  </script>
+</body>
+</html>
